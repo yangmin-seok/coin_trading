@@ -1,7 +1,7 @@
 # coin_trading
 
 RL 기반 코인 트레이딩 프레임워크 스캐폴드입니다.  
-현재는 **데이터/피처/환경/런 메타 기록/시장데이터 처리의 핵심 골격**이 있고, 실거래 주문 루프 일부는 TODO 상태입니다.
+현재는 **데이터/피처/환경/런 메타 기록/시장데이터 처리의 핵심 골격**에 더해, 주문/리스크/user stream/알림/정책 래퍼의 기본 구현이 포함되어 있습니다.
 
 ## 1) 빠른 시작
 
@@ -66,8 +66,8 @@ export APP__INTERVAL=1m
 - `data/`: 데이터 저장/검증/다운로더 뼈대
 - `features/`: offline/online 피처 + parity 테스트
 - `env/`: 트레이딩 환경/보상/체결 모델
-- `execution/`: 시장데이터, 상태, 리컨실 (orders/risk는 TODO)
-- `integrations/`: Binance REST/WS Market (WS User/Telegram은 TODO)
+- `execution/`: 시장데이터, 상태, 리컨실 + 기본 orders/risk
+- `integrations/`: Binance REST/WS Market + WS User/Telegram 기본 송수신
 - `monitoring/`: 메트릭/알림
 - `pipelines/`: train/trade/test 파이프라인 조립
 - `tests/`: 단위/통합 테스트
@@ -101,8 +101,8 @@ python -m pipelines.train
 python -c "from pipelines.trade import run; print(run())"
 ```
 
-현재 `trade.run()`은 런타임 객체 조립 상태를 확인하는 수준이며,
-실시간 주문 event loop는 TODO입니다.
+기본 모드에서는 런타임 조립 상태를 반환하고,
+`run(max_events=...)`로 큐 이벤트 소비/피처 업데이트/리스크 판단/주문 의도 생성까지 점검할 수 있습니다.
 
 ## Step D. 리컨실 로직 단독 점검 예시
 
@@ -135,11 +135,10 @@ python -m compileall .
 
 비구현 또는 부분구현:
 
-- `execution/orders.py`, `execution/risk.py`
-- `integrations/binance_ws_user.py`
-- `integrations/telegram.py`
-- `pipelines/trade.py`의 full event loop
-- SB3 PPO/SAC 실제 연결
+- `pipelines/trade.py`의 실거래 주문 전송/복구 자동화 고도화
+- `integrations/binance_ws_user.py`의 listenKey 발급/갱신 자동화
+- `integrations/telegram.py`의 재시도/레이트리밋 대응
+- SB3 PPO/SAC 학습 파이프라인 실연결
 
 상세 체크리스트는 `docs/CODEBASE_FUNCTION_MAP.md` 참고.
 
