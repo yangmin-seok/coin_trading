@@ -4,9 +4,14 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
+from agents.baselines import VolTarget
 from config.loader import load_config
 from execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
+from execution.orders import OrderManager
 from execution.reconcile import Reconciler
+from execution.risk import RiskManager
+from execution.state import PortfolioState
+from features.online import OnlineFeatureEngine
 from integrations.binance_rest import BinanceRESTClient
 from monitoring.alerts import Alert, AlertEngine
 from monitoring.metrics import MetricsLogger
@@ -20,6 +25,11 @@ class TradeRuntime:
     queue: asyncio.Queue
     metrics: MetricsLogger
     alerts: AlertEngine
+    features: OnlineFeatureEngine
+    risk: RiskManager
+    orders: OrderManager
+    policy: VolTarget
+    state: PortfolioState
 
 
 def build_runtime() -> TradeRuntime:
@@ -33,6 +43,11 @@ def build_runtime() -> TradeRuntime:
     reconciler = Reconciler()
     metrics = MetricsLogger(path=(Path("runs") / "runtime_metrics.jsonl"))
     alerts = AlertEngine()
+    features = OnlineFeatureEngine()
+    risk = RiskManager()
+    orders = OrderManager(client=rest_client)
+    policy = VolTarget()
+    state = PortfolioState(cash=1_000.0, position_qty=0.0, equity=1_000.0, peak_equity=1_000.0)
     return TradeRuntime(
         market_ws=market_ws,
         reconciler=reconciler,
@@ -40,6 +55,11 @@ def build_runtime() -> TradeRuntime:
         queue=queue,
         metrics=metrics,
         alerts=alerts,
+        features=features,
+        risk=risk,
+        orders=orders,
+        policy=policy,
+        state=state,
     )
 
 
@@ -53,6 +73,66 @@ def reconcile_once(runtime: TradeRuntime, internal_total: float, quote_asset: st
     return runtime.alerts.check_reconcile(result.matched, result.reason)
 
 
-def run() -> str:
+def process_market_event(runtime: TradeRuntime, event) -> dict:
+    runtime.state.mark_to_market(event.c)
+    obs = runtime.features.update({"close": event.c, "high": event.h, "low": event.l, "volume": event.v})
+    target = runtime.policy.act(obs=None, info={"close": event.c, "logret_1": obs.get("logret_1", 0.0)})
+    decision = runtime.risk.approve_target(
+        target,
+        equity=runtime.state.equity,
+        peak_equity=runtime.state.peak_equity,
+        notional=runtime.state.position_qty * event.c,
+    )
+
+    order_intent = None
+    if decision.approved:
+        current_position = (runtime.state.position_qty * event.c) / runtime.state.equity if runtime.state.equity > 0 else 0.0
+        order_intent = runtime.orders.target_to_intent(
+            runtime.market_ws.symbol,
+            current_position=current_position,
+            target_position=decision.target,
+            equity=runtime.state.equity,
+            price=event.c,
+        )
+
+    runtime.metrics.incr("market_events", 1)
+    runtime.metrics.emit(
+        {
+            "event_ts": event.open_time_ms,
+            "price": event.c,
+            "equity": runtime.state.equity,
+            "target": decision.target,
+            "risk_reason": decision.reason,
+            "order_side": order_intent.side if order_intent else None,
+            "order_qty": order_intent.quantity if order_intent else 0.0,
+        }
+    )
+    return {
+        "target": decision.target,
+        "approved": decision.approved,
+        "order_intent": order_intent,
+        "equity": runtime.state.equity,
+    }
+
+
+def run(max_events: int = 0, timeout_s: float = 0.0) -> str:
     runtime = build_runtime()
-    return f"trade runtime ready: symbol={runtime.market_ws.symbol}, interval={runtime.market_ws.interval}"
+    if max_events <= 0:
+        return f"trade runtime ready: symbol={runtime.market_ws.symbol}, interval={runtime.market_ws.interval}"
+
+    async def _consume() -> int:
+        processed = 0
+        while processed < max_events:
+            try:
+                event = await asyncio.wait_for(runtime.queue.get(), timeout=timeout_s if timeout_s > 0 else None)
+            except TimeoutError:
+                break
+            process_market_event(runtime, event)
+            processed += 1
+        return processed
+
+    processed = asyncio.run(_consume())
+    return (
+        f"trade runtime ready: symbol={runtime.market_ws.symbol}, "
+        f"interval={runtime.market_ws.interval}, processed_events={processed}"
+    )
