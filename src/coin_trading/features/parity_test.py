@@ -9,7 +9,7 @@ from src.coin_trading.features.offline import compute_offline
 
 def replay_and_compare(candles_df: pd.DataFrame, feature_engine, n_steps: int = 10_000, atol: float = 1e-9) -> None:
     offline = compute_offline(candles_df)
-    online = feature_engine.compute_online_by_replay(candles_df)
+    online = feature_engine.compute_batch(candles_df)
     if list(offline.columns) != FEATURE_COLUMNS or list(online.columns) != FEATURE_COLUMNS:
         raise AssertionError("feature schema mismatch")
 

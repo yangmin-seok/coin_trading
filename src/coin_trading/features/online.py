@@ -17,9 +17,12 @@ class OnlineFeatureEngine:
         feats = update_features(self.state, candle)
         return {col: feats[col] for col in FEATURE_COLUMNS}
 
-    def compute_online_by_replay(self, candles_df: pd.DataFrame) -> pd.DataFrame:
+    def compute_batch(self, candles_df: pd.DataFrame) -> pd.DataFrame:
         self.reset()
         rows = []
         for row in candles_df.itertuples(index=False):
             rows.append(self.update(row._asdict()))
         return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
+
+    def compute_online_by_replay(self, candles_df: pd.DataFrame) -> pd.DataFrame:
+        raise RuntimeError("compute_online_by_replay is deprecated; use compute_batch for both offline training and online replay.")
