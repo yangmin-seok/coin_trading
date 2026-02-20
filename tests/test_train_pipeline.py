@@ -32,21 +32,31 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     run_dir = Path("runs") / run_id
     assert run_dir.exists()
 
+
+    assert (run_dir / "plots").exists()
+    assert (run_dir / "reports").exists()
+    assert (run_dir / "artifacts").exists()
+    assert (run_dir / "artifacts" / "config.yaml").exists()
+    metadata = json.loads((run_dir / "artifacts" / "metadata.json").read_text(encoding="utf-8"))
+    assert "seed" in metadata
+    assert "git_sha" in metadata
+    assert "start_time_utc" in metadata
+    assert set(metadata["data_range"].keys()) == {"train", "val", "test"}
     train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
-    model_train = json.loads((run_dir / "model_train_summary.json").read_text(encoding="utf-8"))
+    model_train = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
 
     assert train_manifest["status"] in {"ready", "blocked_missing_dependencies"}
 
     if train_manifest["status"] == "ready":
         assert model_train["enabled"] is True
         assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
-        assert (run_dir / "learning_curve.csv").exists()
-        assert (run_dir / "learning_curve.json").exists()
-        assert (run_dir / "learning_curve.svg").exists()
-        assert (run_dir / "evaluation_metrics.json").exists()
-        assert (run_dir / "best_model.zip").exists()
-        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "plots" / "learning_curve.csv").exists()
+        assert (run_dir / "plots" / "learning_curve.json").exists()
+        assert (run_dir / "plots" / "learning_curve.svg").exists()
+        assert (run_dir / "reports" / "metrics.json").exists()
+        assert (run_dir / "artifacts" / "model.zip").exists()
+        assert (run_dir / "reports" / "val_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "reports" / "test_trace" / "reward_equity.svg").exists()
     else:
         assert model_train["enabled"] is False
         assert model_train["reason"] == "missing_dependencies"

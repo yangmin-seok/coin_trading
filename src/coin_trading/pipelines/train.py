@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 from pathlib import Path
 from typing import Any
@@ -14,11 +15,11 @@ from src.coin_trading.config.schema import AppConfig
 from src.coin_trading.features.definitions import FEATURE_COLUMNS
 from src.coin_trading.features.offline import compute_offline
 from src.coin_trading.pipelines.run_manager import (
+    git_sha,
     implementation_hash,
     make_run_id,
     write_data_manifest,
     write_feature_manifest,
-    write_meta,
     write_train_manifest,
 )
 from data.io import write_candles_parquet
@@ -152,12 +153,33 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
 def _seed_everything(seed: int) -> None:
     np.random.seed(seed)
     random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
     try:
         import torch
 
         torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
     except ImportError:
         pass
+
+
+def _write_metadata(
+    artifacts_dir: Path,
+    *,
+    seed: int,
+    start_time_utc: str,
+    git_sha_value: str,
+    data_range: dict[str, list[str]],
+) -> None:
+    metadata = {
+        "seed": seed,
+        "git_sha": git_sha_value,
+        "start_time_utc": start_time_utc,
+        "data_range": data_range,
+    }
+    (artifacts_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
 def _build_sb3_algo(algo_name: str, env: GymTradingEnv, cfg: AppConfig):
@@ -278,7 +300,9 @@ def _train_sb3(
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
     cfg: AppConfig,
-    run_dir: Path,
+    plots_dir: Path,
+    reports_dir: Path,
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     if train_df.empty or val_df.empty:
         return {"enabled": False, "reason": "insufficient_split_rows"}
@@ -313,23 +337,23 @@ def _train_sb3(
         if val_metrics["sharpe"] > best_sharpe:
             best_sharpe = val_metrics["sharpe"]
             stale = 0
-            model.save(str(run_dir / "best_model"))
+            model.save(str(artifacts_dir / "model"))
         else:
             stale += 1
 
         if trained % ckpt_interval == 0 or trained == total:
             ckpt_name = f"checkpoint_{trained}.zip"
-            model.save(str(run_dir / ckpt_name.replace(".zip", "")))
+            model.save(str(artifacts_dir / ckpt_name.replace(".zip", "")))
             checkpoints.append(ckpt_name)
 
         if cfg.train.early_stop > 0 and stale >= cfg.train.early_stop:
             break
 
-    best_model_path = run_dir / "best_model.zip"
+    best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = _rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    test_metrics = _rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    val_final = _rollout_model(best_model, val_df, val_features, cfg, reports_dir / "val_trace")
+    test_metrics = _rollout_model(best_model, test_df, test_features, cfg, reports_dir / "test_trace") if not test_df.empty else {"enabled": False}
 
     curve_rows = [
         {
@@ -343,30 +367,30 @@ def _train_sb3(
         }
         for h in history
     ]
-    pd.DataFrame(curve_rows).to_csv(run_dir / "learning_curve.csv", index=False)
-    (run_dir / "learning_curve.json").write_text(json.dumps(curve_rows, indent=2), encoding="utf-8")
-    _render_learning_curve_svg(history, run_dir / "learning_curve.svg")
+    pd.DataFrame(curve_rows).to_csv(plots_dir / "learning_curve.csv", index=False)
+    (plots_dir / "learning_curve.json").write_text(json.dumps(curve_rows, indent=2), encoding="utf-8")
+    _render_learning_curve_svg(history, plots_dir / "learning_curve.svg")
 
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
         "steps": int(trained),
-        "best_model": "best_model.zip" if best_model_path.exists() else None,
+        "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
         "val_metrics": val_final,
         "test_metrics": test_metrics,
         "artifacts": {
-            "learning_curve_csv": "learning_curve.csv",
-            "learning_curve_json": "learning_curve.json",
-            "learning_curve_svg": "learning_curve.svg",
-            "best_model": "best_model.zip" if best_model_path.exists() else None,
-            "val_trace_dir": "val_trace",
-            "test_trace_dir": "test_trace",
+            "learning_curve_csv": "plots/learning_curve.csv",
+            "learning_curve_json": "plots/learning_curve.json",
+            "learning_curve_svg": "plots/learning_curve.svg",
+            "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
+            "val_trace_dir": "reports/val_trace",
+            "test_trace_dir": "reports/test_trace",
         },
     }
-    (run_dir / "evaluation_metrics.json").write_text(
+    (reports_dir / "metrics.json").write_text(
         json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
         encoding="utf-8",
     )
@@ -375,13 +399,32 @@ def _train_sb3(
 
 def run() -> str:
     cfg = load_config()
-    run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
+    start_time_utc = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
+    run_id = make_run_id()
     run_dir = Path("runs") / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir = run_dir / "plots"
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    default_config_path = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
-    (run_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(run_dir)
+    config_path = Path("config/default.yaml")
+    if not config_path.exists():
+        config_path = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
+    (artifacts_dir / "config.yaml").write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    _write_metadata(
+        artifacts_dir,
+        seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
+        start_time_utc=start_time_utc,
+        git_sha_value=git_sha(),
+        data_range={
+            "train": list(cfg.split.train),
+            "val": list(cfg.split.val),
+            "test": list(cfg.split.test),
+        },
+    )
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
@@ -393,14 +436,14 @@ def run() -> str:
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
     if dataset_summary["rows"] > 0:
         try:
-            train_summary = _train_sb3(train_df, val_df, test_df, cfg, run_dir)
+            train_summary = _train_sb3(train_df, val_df, test_df, cfg, plots_dir, reports_dir, artifacts_dir)
         except RuntimeError as exc:
             status = "blocked_missing_dependencies"
             train_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
     else:
         train_summary = {"enabled": False, "reason": "no_data"}
 
-    (run_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
+    (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
     write_data_manifest(
         run_dir,
@@ -441,7 +484,7 @@ def run() -> str:
             "model_train": train_summary,
         },
     )
-    (run_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
+    (reports_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
     return run_id
 
 

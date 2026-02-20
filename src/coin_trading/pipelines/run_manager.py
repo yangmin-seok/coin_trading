@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any
 
 
-def make_run_id(mode: str, symbol: str, interval: str, seed: int) -> str:
+def make_run_id() -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     sha = git_sha()[:7]
-    return f"{ts}_{sha}_{mode}_{symbol}_{interval}_seed{seed}"
+    return f"{ts}_{sha}"
 
 
 def git_sha() -> str:
