@@ -12,6 +12,7 @@ class RuntimeCounters:
     gapfills: int = 0
     reconcile_mismatches: int = 0
     order_failures: int = 0
+    market_events: int = 0
 
 
 @dataclass(slots=True)
@@ -33,6 +34,7 @@ class MetricsLogger:
             "gapfills": self.counters.gapfills,
             "reconcile_mismatches": self.counters.reconcile_mismatches,
             "order_failures": self.counters.order_failures,
+            "market_events": self.counters.market_events,
         }
         if extra:
             payload.update(extra)
