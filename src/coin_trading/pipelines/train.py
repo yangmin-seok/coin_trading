@@ -8,10 +8,12 @@ import numpy as np
 import pandas as pd
 
 from src.coin_trading.agents.baselines import VolTarget
+from src.coin_trading.agents.linear_pg import LinearPolicyGradient
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.config.schema import AppConfig
 from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
+from env.spaces import OBS_COLUMNS
 from env.trading_env import TradingEnv
 from src.coin_trading.features.definitions import FEATURE_COLUMNS
 from src.coin_trading.features.offline import compute_offline
@@ -186,11 +188,58 @@ def run_training_probe(candles_df: pd.DataFrame, run_dir: Path) -> dict[str, Any
         "final_equity": final_equity,
         "artifacts": {
             "trace_csv": str(artifacts["csv"].relative_to(run_dir)),
-            "reward_equity_svg": str(artifacts["svg"].relative_to(run_dir)),
+            "reward_equity_svg": str(artifacts["reward_equity_svg"].relative_to(run_dir)),
+            "drawdown_turnover_svg": str(artifacts["drawdown_turnover_svg"].relative_to(run_dir)),
+            "action_position_svg": str(artifacts["action_position_svg"].relative_to(run_dir)),
+            "costs_svg": str(artifacts["costs_svg"].relative_to(run_dir)),
         },
     }
     (run_dir / "train_probe_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
+
+
+def _train_linear_policy(candles_df: pd.DataFrame, cfg: AppConfig, epochs: int = 5, lr: float = 0.02) -> dict[str, Any]:
+    features_df = compute_offline(candles_df)
+    env = TradingEnv(candles_df, features_df, ExecutionModel())
+    model = LinearPolicyGradient(obs_dim=len(OBS_COLUMNS), seed=cfg.seed)
+
+    history: list[dict[str, float | int]] = []
+    total_steps = 0
+    for epoch in range(epochs):
+        obs = env.reset()
+        done = False
+        epoch_reward = 0.0
+        steps = 0
+        while not done:
+            action = model.act(obs)
+            next_obs, reward, done, _ = env.step(action)
+            model.train_step(obs, float(reward), lr=lr)
+            epoch_reward += float(reward)
+            obs = next_obs
+            steps += 1
+            total_steps += 1
+        history.append(
+            {
+                "epoch": int(epoch + 1),
+                "total_reward": float(epoch_reward),
+                "mean_reward": float(epoch_reward / max(steps, 1)),
+                "final_equity": float(env.state.equity),
+                "steps": int(steps),
+            }
+        )
+
+    return {
+        "enabled": True,
+        "model": "LinearPolicyGradient",
+        "epochs": int(epochs),
+        "learning_rate": float(lr),
+        "steps": int(total_steps),
+        "history": history,
+        "final_equity": float(history[-1]["final_equity"]) if history else 0.0,
+        "final_total_reward": float(history[-1]["total_reward"]) if history else 0.0,
+        "weights": [float(v) for v in model.weights.tolist()],
+        "bias": float(model.bias),
+    }
 
 
 def run() -> str:
@@ -206,6 +255,8 @@ def run() -> str:
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
     probe_summary = run_training_probe(candles_df, run_dir)
+    train_summary = _train_linear_policy(candles_df, cfg) if dataset_summary["rows"] > 0 else {"enabled": False, "reason": "no_data"}
+    (run_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
     write_data_manifest(
         run_dir,
@@ -241,9 +292,10 @@ def run() -> str:
             "status": "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data",
             "missing": [] if dataset_summary["rows"] > 0 else ["data/processed parquet dataset"],
             "split_rows": {k: v["rows"] for k, v in dataset_summary["splits"].items()},
-            "epochs": probe_summary.get("epochs", 0),
-            "model": probe_summary.get("model", "none"),
+            "epochs": train_summary.get("epochs", 0),
+            "model": train_summary.get("model", "none"),
             "probe": probe_summary,
+            "model_train": train_summary,
         },
     )
     (run_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")

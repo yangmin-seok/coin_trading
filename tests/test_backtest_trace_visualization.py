@@ -19,6 +19,10 @@ def test_backtest_trace_artifacts(sample_candles, tmp_path):
     artifacts = env.recorder.write_trace_artifacts(tmp_path)
     assert artifacts["csv"].exists()
     assert artifacts["svg"].exists()
+    assert artifacts["reward_equity_svg"].exists()
+    assert artifacts["drawdown_turnover_svg"].exists()
+    assert artifacts["action_position_svg"].exists()
+    assert artifacts["costs_svg"].exists()
 
     csv_text = artifacts["csv"].read_text(encoding="utf-8")
     assert "signal" in csv_text
