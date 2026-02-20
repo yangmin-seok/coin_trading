@@ -1,0 +1,641 @@
+{
+  "status": "ready",
+  "missing": [],
+  "split_rows": {
+    "train": 240,
+    "val": 240,
+    "test": 240
+  },
+  "epochs": 0,
+  "model": "SB3-PPO",
+  "model_train": {
+    "enabled": true,
+    "walkforward_runs": 1,
+    "walkforward_requested": 3,
+    "walkforward_coverage_check": {
+      "requested_runs": 3,
+      "data_end": "2025-07-01",
+      "next_fold_required_test_end": "2026-12-28",
+      "satisfied": false
+    },
+    "walkforward_coverage_adjustment": null,
+    "walkforward_shortfall": {
+      "reason": "insufficient_data_coverage_for_requested_walkforward",
+      "requested": 3,
+      "actual": 1,
+      "data_end": "2025-07-01",
+      "next_fold_required_test_end": "2026-06-30",
+      "suggestion": "collect more data or reduce val/test ranges to increase walkforward folds"
+    },
+    "results": [
+      {
+        "fold": 1,
+        "split": {
+          "train": [
+            "2022-01-01",
+            "2024-12-31"
+          ],
+          "val": [
+            "2025-01-01",
+            "2025-06-30"
+          ],
+          "test": [
+            "2025-07-01",
+            "2025-12-31"
+          ]
+        },
+        "rows": {
+          "train": 240,
+          "val": 240,
+          "test": 240
+        },
+        "summary": {
+          "enabled": true,
+          "model": "SB3-PPO",
+          "algo": "ppo",
+          "steps": 10000,
+          "best_model": "artifacts/model.zip",
+          "checkpoints": [
+            "artifacts/checkpoint_2000.zip",
+            "artifacts/checkpoint_4000.zip",
+            "artifacts/checkpoint_6000.zip",
+            "artifacts/checkpoint_8000.zip",
+            "artifacts/checkpoint_10000.zip"
+          ],
+          "history": [
+            {
+              "timesteps": 2000,
+              "val": {
+                "steps": 238,
+                "final_equity": 10000.0,
+                "sharpe": 0.0,
+                "max_drawdown": 0.0,
+                "turnover": 0.0,
+                "win_rate": 0.0,
+                "total_cost": 0.0,
+                "pnl": 0.0,
+                "cost_pnl_ratio": 0.0,
+                "cost_report": {
+                  "turnover_total": 0.0,
+                  "fee_slippage_total": 0.0,
+                  "cost_per_turnover": 0.0
+                }
+              },
+              "selection": {
+                "score": 0.0,
+                "sharpe": 0.0,
+                "final_equity": 10000.0,
+                "turnover": 0.0,
+                "turnover_cap": 0.1,
+                "turnover_penalty": 0.0,
+                "turnover_excess": 0.0
+              }
+            },
+            {
+              "timesteps": 4000,
+              "val": {
+                "steps": 238,
+                "final_equity": 9940.704560797121,
+                "sharpe": -10.837153621134899,
+                "max_drawdown": 0.006560241794428157,
+                "turnover": 2.821493418935765,
+                "win_rate": 0.0,
+                "total_cost": 81.64216224766457,
+                "pnl": -59.2954392028787,
+                "cost_pnl_ratio": 1.3768708579478905,
+                "cost_report": {
+                  "turnover_total": 671.5154337067121,
+                  "fee_slippage_total": 81.64216224766457,
+                  "cost_per_turnover": 0.1215789811367496
+                }
+              },
+              "selection": {
+                "score": -282.9864955147114,
+                "sharpe": -10.837153621134899,
+                "final_equity": 9940.704560797121,
+                "turnover": 2.821493418935765,
+                "turnover_cap": 0.1,
+                "turnover_penalty": 272.1493418935765,
+                "turnover_excess": 2.721493418935765
+              }
+            },
+            {
+              "timesteps": 6000,
+              "val": {
+                "steps": 238,
+                "final_equity": 9983.09562625642,
+                "sharpe": -3.866428201729334,
+                "max_drawdown": 0.0018555483267372885,
+                "turnover": 0.4955671446486132,
+                "win_rate": 0.0,
+                "total_cost": 14.164015788387257,
+                "pnl": -16.904373743580436,
+                "cost_pnl_ratio": 0.837890595844531,
+                "cost_report": {
+                  "turnover_total": 117.94498042636994,
+                  "fee_slippage_total": 14.164015788387257,
+                  "cost_per_turnover": 0.12009002619004625
+                }
+              },
+              "selection": {
+                "score": -43.42314266659066,
+                "sharpe": -3.866428201729334,
+                "final_equity": 9983.09562625642,
+                "turnover": 0.4955671446486132,
+                "turnover_cap": 0.1,
+                "turnover_penalty": 39.55671446486132,
+                "turnover_excess": 0.3955671446486132
+              }
+            },
+            {
+              "timesteps": 8000,
+              "val": {
+                "steps": 238,
+                "final_equity": 9952.91443076008,
+                "sharpe": -9.34557453524373,
+                "max_drawdown": 0.005362565549877907,
+                "turnover": 2.360458797763101,
+                "win_rate": 0.0,
+                "total_cost": 68.31668922631752,
+                "pnl": -47.085569239920005,
+                "cost_pnl_ratio": 1.4509050294840098,
+                "cost_report": {
+                  "turnover_total": 561.789193867618,
+                  "fee_slippage_total": 68.31668922631752,
+                  "cost_per_turnover": 0.12160555947328512
+                }
+              },
+              "selection": {
+                "score": -235.39145431155382,
+                "sharpe": -9.34557453524373,
+                "final_equity": 9952.91443076008,
+                "turnover": 2.360458797763101,
+                "turnover_cap": 0.1,
+                "turnover_penalty": 226.04587977631007,
+                "turnover_excess": 2.2604587977631008
+              }
+            },
+            {
+              "timesteps": 10000,
+              "val": {
+                "steps": 238,
+                "final_equity": 9973.113937324191,
+                "sharpe": -5.558429956456791,
+                "max_drawdown": 0.0026886062675808287,
+                "turnover": 1.086552342798467,
+                "win_rate": 0.0,
+                "total_cost": 31.00139718834773,
+                "pnl": -26.886062675808716,
+                "cost_pnl_ratio": 1.1530657189251392,
+                "cost_report": {
+                  "turnover_total": 258.5994575860351,
+                  "fee_slippage_total": 31.00139718834773,
+                  "cost_per_turnover": 0.11988191111357485
+                }
+              },
+              "selection": {
+                "score": -104.21366423630349,
+                "sharpe": -5.558429956456791,
+                "final_equity": 9973.113937324191,
+                "turnover": 1.086552342798467,
+                "turnover_cap": 0.1,
+                "turnover_penalty": 98.6552342798467,
+                "turnover_excess": 0.9865523427984669
+              }
+            }
+          ],
+          "selection": {
+            "criteria": "maximize composite score (sharpe - turnover_penalty), then higher sharpe, then higher final_equity",
+            "best_candidate": {
+              "timesteps": 2000,
+              "score": 0.0,
+              "sharpe": 0.0,
+              "final_equity": 10000.0,
+              "turnover": 0.0,
+              "turnover_cap": 0.1,
+              "turnover_penalty": 0.0,
+              "turnover_excess": 0.0
+            },
+            "training_schedule": {
+              "configured": {
+                "total_timesteps": 1024,
+                "eval_interval": 256,
+                "early_stop": 3,
+                "checkpoint_interval": 512
+              },
+              "effective": {
+                "total_timesteps": 10000,
+                "eval_interval": 2000,
+                "early_stop": 5,
+                "checkpoint_interval": 2000
+              }
+            }
+          },
+          "val_metrics": {
+            "steps": 238,
+            "final_equity": 10000.0,
+            "sharpe": 0.0,
+            "max_drawdown": 0.0,
+            "turnover": 0.0,
+            "win_rate": 0.0,
+            "total_cost": 0.0,
+            "pnl": 0.0,
+            "cost_pnl_ratio": 0.0,
+            "cost_report": {
+              "turnover_total": 0.0,
+              "fee_slippage_total": 0.0,
+              "cost_per_turnover": 0.0
+            },
+            "artifacts": {
+              "csv": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/trace.csv",
+              "svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/reward_equity.svg",
+              "reward_equity_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/reward_equity.svg",
+              "drawdown_turnover_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/drawdown_turnover.svg",
+              "action_position_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/action_position.svg",
+              "costs_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/costs.svg",
+              "reward_components_timeseries_png": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/val_trace/reward_components_timeseries.png"
+            }
+          },
+          "test_metrics": {
+            "steps": 238,
+            "final_equity": 9947.59925551879,
+            "sharpe": -5.54386672820475,
+            "max_drawdown": 0.006490126735159252,
+            "turnover": 0.9716865916183584,
+            "win_rate": 0.004201680672268907,
+            "total_cost": 27.101685443637624,
+            "pnl": -52.400744481210495,
+            "cost_pnl_ratio": 0.5172003892684304,
+            "cost_report": {
+              "turnover_total": 231.26140880516928,
+              "fee_slippage_total": 27.101685443637624,
+              "cost_per_turnover": 0.11719069594732934
+            },
+            "artifacts": {
+              "csv": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/trace.csv",
+              "svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/reward_equity.svg",
+              "reward_equity_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/reward_equity.svg",
+              "drawdown_turnover_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/drawdown_turnover.svg",
+              "action_position_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/action_position.svg",
+              "costs_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/costs.svg",
+              "reward_components_timeseries_png": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_27/reports/test_trace/reward_components_timeseries.png"
+            }
+          },
+          "artifacts": {
+            "learning_curve_csv": "reports/learning_curve.csv",
+            "learning_curve_json": "reports/learning_curve.json",
+            "learning_curve_svg": "plots/learning_curve.svg",
+            "best_model": "artifacts/model.zip",
+            "val_trace_dir": "reports/val_trace",
+            "test_trace_dir": "reports/test_trace",
+            "evaluation_metrics": "artifacts/metrics.json"
+          },
+          "selected_experiment": {
+            "id": 27,
+            "axes": {
+              "lambda_turnover": 0.005,
+              "min_delta": 0.05,
+              "max_step_change": 0.1
+            },
+            "run_dir": "experiment_27",
+            "criteria": "maximize test final_equity while requiring lower total_cost than baseline when possible"
+          },
+          "experiments": [
+            {
+              "id": 1,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.01,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_01",
+              "test_final_equity": 9864.46499230122,
+              "test_total_cost": 117.55459804982269,
+              "test_cost_pnl_ratio": 0.8673375244208664
+            },
+            {
+              "id": 2,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.01,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_02",
+              "test_final_equity": 9897.690242521658,
+              "test_total_cost": 84.40030047127914,
+              "test_cost_pnl_ratio": 0.8249486906382861
+            },
+            {
+              "id": 3,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.01,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_03",
+              "test_final_equity": 9925.118913718108,
+              "test_total_cost": 60.25168917706133,
+              "test_cost_pnl_ratio": 0.804631612183646
+            },
+            {
+              "id": 4,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.03,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_04",
+              "test_final_equity": 9871.211802154381,
+              "test_total_cost": 111.86290278594555,
+              "test_cost_pnl_ratio": 0.8685803874671647
+            },
+            {
+              "id": 5,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.03,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_05",
+              "test_final_equity": 9905.842584575064,
+              "test_total_cost": 79.39871437780847,
+              "test_cost_pnl_ratio": 0.8432550322189643
+            },
+            {
+              "id": 6,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.03,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_06",
+              "test_final_equity": 9928.785501590866,
+              "test_total_cost": 56.454920363113224,
+              "test_cost_pnl_ratio": 0.7927447587817665
+            },
+            {
+              "id": 7,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.05,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_07",
+              "test_final_equity": 9881.655489992247,
+              "test_total_cost": 99.27924233335884,
+              "test_cost_pnl_ratio": 0.8389002778992837
+            },
+            {
+              "id": 8,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.05,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_08",
+              "test_final_equity": 9902.725919614777,
+              "test_total_cost": 76.59060417170161,
+              "test_cost_pnl_ratio": 0.7873690901871181
+            },
+            {
+              "id": 9,
+              "axes": {
+                "lambda_turnover": 0.001,
+                "min_delta": 0.05,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_09",
+              "test_final_equity": 9939.056958227327,
+              "test_total_cost": 42.88428470506075,
+              "test_cost_pnl_ratio": 0.7036781141483892
+            },
+            {
+              "id": 10,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.01,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_10",
+              "test_final_equity": 9878.930783948897,
+              "test_total_cost": 102.94111902432635,
+              "test_cost_pnl_ratio": 0.8502666687861888
+            },
+            {
+              "id": 11,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.01,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_11",
+              "test_final_equity": 9905.248073274852,
+              "test_total_cost": 76.10453927877217,
+              "test_cost_pnl_ratio": 0.8031978019774997
+            },
+            {
+              "id": 12,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.01,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_12",
+              "test_final_equity": 9928.530844001027,
+              "test_total_cost": 56.193369211763994,
+              "test_cost_pnl_ratio": 0.7862604283807585
+            },
+            {
+              "id": 13,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.03,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_13",
+              "test_final_equity": 9889.342191377775,
+              "test_total_cost": 96.74369430921496,
+              "test_cost_pnl_ratio": 0.8742599868346236
+            },
+            {
+              "id": 14,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.03,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_14",
+              "test_final_equity": 9913.981272629908,
+              "test_total_cost": 70.7299354002831,
+              "test_cost_pnl_ratio": 0.8222620534243706
+            },
+            {
+              "id": 15,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.03,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_15",
+              "test_final_equity": 9935.805676766866,
+              "test_total_cost": 50.691928312593085,
+              "test_cost_pnl_ratio": 0.789663723511743
+            },
+            {
+              "id": 16,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.05,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_16",
+              "test_final_equity": 9895.26416662724,
+              "test_total_cost": 84.9908692136888,
+              "test_cost_pnl_ratio": 0.8114784260244681
+            },
+            {
+              "id": 17,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.05,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_17",
+              "test_final_equity": 9910.395593469084,
+              "test_total_cost": 69.16268285582262,
+              "test_cost_pnl_ratio": 0.7718669821440033
+            },
+            {
+              "id": 18,
+              "axes": {
+                "lambda_turnover": 0.003,
+                "min_delta": 0.05,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_18",
+              "test_final_equity": 9944.110210511493,
+              "test_total_cost": 35.49191442472139,
+              "test_cost_pnl_ratio": 0.6350339614719789
+            },
+            {
+              "id": 19,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.01,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_19",
+              "test_final_equity": 9895.923942450894,
+              "test_total_cost": 87.459505378742,
+              "test_cost_pnl_ratio": 0.8403422212402338
+            },
+            {
+              "id": 20,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.01,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_20",
+              "test_final_equity": 9914.412217086874,
+              "test_total_cost": 68.40257857279101,
+              "test_cost_pnl_ratio": 0.7992096096497979
+            },
+            {
+              "id": 21,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.01,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_21",
+              "test_final_equity": 9933.92517314587,
+              "test_total_cost": 51.303014747650366,
+              "test_cost_pnl_ratio": 0.7764381261400696
+            },
+            {
+              "id": 22,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.03,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_22",
+              "test_final_equity": 9901.10841039169,
+              "test_total_cost": 84.94792896708913,
+              "test_cost_pnl_ratio": 0.8590005409312393
+            },
+            {
+              "id": 23,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.03,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_23",
+              "test_final_equity": 9920.456620848288,
+              "test_total_cost": 63.051277578768946,
+              "test_cost_pnl_ratio": 0.7926653135833266
+            },
+            {
+              "id": 24,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.03,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_24",
+              "test_final_equity": 9936.13085366211,
+              "test_total_cost": 46.36939576435951,
+              "test_cost_pnl_ratio": 0.7260061927092297
+            },
+            {
+              "id": 25,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.05,
+                "max_step_change": 0.25
+              },
+              "run_dir": "experiment_25",
+              "test_final_equity": 9912.42446306608,
+              "test_total_cost": 71.79269328930243,
+              "test_cost_pnl_ratio": 0.8197802240535871
+            },
+            {
+              "id": 26,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.05,
+                "max_step_change": 0.15
+              },
+              "run_dir": "experiment_26",
+              "test_final_equity": 9920.479180447934,
+              "test_total_cost": 58.44656872219564,
+              "test_cost_pnl_ratio": 0.7349844864705866
+            },
+            {
+              "id": 27,
+              "axes": {
+                "lambda_turnover": 0.005,
+                "min_delta": 0.05,
+                "max_step_change": 0.1
+              },
+              "run_dir": "experiment_27",
+              "test_final_equity": 9947.59925551879,
+              "test_total_cost": 27.101685443637624,
+              "test_cost_pnl_ratio": 0.5172003892684304
+            }
+          ]
+        }
+      }
+    ],
+    "model": "SB3-PPO",
+    "reason": null,
+    "message": null
+  },
+  "artifacts": {
+    "train_summary_report": "reports/model_train_summary.json",
+    "config": "artifacts/config.yaml",
+    "metadata": "artifacts/metadata.json"
+  }
+}

@@ -1,0 +1,221 @@
+{
+  "history": [
+    {
+      "timesteps": 2000,
+      "val": {
+        "steps": 238,
+        "final_equity": 9980.724395921627,
+        "sharpe": -3.8527031828393454,
+        "max_drawdown": 0.0021254743211728266,
+        "turnover": 0.569721146971449,
+        "win_rate": 0.0,
+        "total_cost": 16.226023677680104,
+        "pnl": -19.275604078373362,
+        "cost_pnl_ratio": 0.8417906703056433,
+        "cost_report": {
+          "turnover_total": 135.59363297920487,
+          "fee_slippage_total": 16.226023677680104,
+          "cost_per_turnover": 0.1196665604510249
+        }
+      },
+      "selection": {
+        "score": -35.82481787998425,
+        "sharpe": -3.8527031828393454,
+        "final_equity": 9980.724395921627,
+        "turnover": 0.569721146971449,
+        "turnover_cap": 0.25,
+        "turnover_penalty": 31.972114697144903,
+        "turnover_excess": 0.31972114697144904
+      }
+    },
+    {
+      "timesteps": 4000,
+      "val": {
+        "steps": 238,
+        "final_equity": 9916.32251539958,
+        "sharpe": -8.08701235480943,
+        "max_drawdown": 0.008612754130564837,
+        "turnover": 2.453529318321041,
+        "win_rate": 0.0,
+        "total_cost": 70.83166006387827,
+        "pnl": -83.67748460041912,
+        "cost_pnl_ratio": 0.846484097868347,
+        "cost_report": {
+          "turnover_total": 583.9399777604078,
+          "fee_slippage_total": 70.83166006387827,
+          "cost_per_turnover": 0.12129955605290087
+        }
+      },
+      "selection": {
+        "score": -228.43994418691352,
+        "sharpe": -8.08701235480943,
+        "final_equity": 9916.32251539958,
+        "turnover": 2.453529318321041,
+        "turnover_cap": 0.25,
+        "turnover_penalty": 220.3529318321041,
+        "turnover_excess": 2.203529318321041
+      }
+    },
+    {
+      "timesteps": 6000,
+      "val": {
+        "steps": 238,
+        "final_equity": 9931.468306523248,
+        "sharpe": -5.2701001053121805,
+        "max_drawdown": 0.0070048179927530985,
+        "turnover": 1.7177702086139415,
+        "win_rate": 0.0,
+        "total_cost": 49.13768200907274,
+        "pnl": -68.53169347675248,
+        "cost_pnl_ratio": 0.7170066799201652,
+        "cost_report": {
+          "turnover_total": 408.8293096501181,
+          "fee_slippage_total": 49.13768200907274,
+          "cost_per_turnover": 0.12019119189650435
+        }
+      },
+      "selection": {
+        "score": -152.0471209667063,
+        "sharpe": -5.2701001053121805,
+        "final_equity": 9931.468306523248,
+        "turnover": 1.7177702086139415,
+        "turnover_cap": 0.25,
+        "turnover_penalty": 146.77702086139413,
+        "turnover_excess": 1.4677702086139415
+      }
+    },
+    {
+      "timesteps": 8000,
+      "val": {
+        "steps": 238,
+        "final_equity": 9848.535652899367,
+        "sharpe": -9.700409629875507,
+        "max_drawdown": 0.015816528923144335,
+        "turnover": 4.84168089580947,
+        "win_rate": 0.0,
+        "total_cost": 139.45208948068057,
+        "pnl": -151.46434710063295,
+        "cost_pnl_ratio": 0.920692507181433,
+        "cost_report": {
+          "turnover_total": 1152.320053202654,
+          "fee_slippage_total": 139.45208948068057,
+          "cost_per_turnover": 0.12101853915767591
+        }
+      },
+      "selection": {
+        "score": -468.8684992108225,
+        "sharpe": -9.700409629875507,
+        "final_equity": 9848.535652899367,
+        "turnover": 4.84168089580947,
+        "turnover_cap": 0.25,
+        "turnover_penalty": 459.168089580947,
+        "turnover_excess": 4.59168089580947
+      }
+    },
+    {
+      "timesteps": 10000,
+      "val": {
+        "steps": 238,
+        "final_equity": 9931.864226519529,
+        "sharpe": -5.882944626054168,
+        "max_drawdown": 0.007138309379830066,
+        "turnover": 2.6993574946933707,
+        "win_rate": 0.0,
+        "total_cost": 76.96906523958394,
+        "pnl": -68.13577348047147,
+        "cost_pnl_ratio": 1.1296424962673124,
+        "cost_report": {
+          "turnover_total": 642.4470837370222,
+          "fee_slippage_total": 76.96906523958394,
+          "cost_per_turnover": 0.11980607771128163
+        }
+      },
+      "selection": {
+        "score": -250.81869409539124,
+        "sharpe": -5.882944626054168,
+        "final_equity": 9931.864226519529,
+        "turnover": 2.6993574946933707,
+        "turnover_cap": 0.25,
+        "turnover_penalty": 244.93574946933708,
+        "turnover_excess": 2.4493574946933707
+      }
+    }
+  ],
+  "selection": {
+    "criteria": "maximize composite score (sharpe - turnover_penalty), then higher sharpe, then higher final_equity",
+    "best_candidate": {
+      "timesteps": 2000,
+      "score": -35.82481787998425,
+      "sharpe": -3.8527031828393454,
+      "final_equity": 9980.724395921627,
+      "turnover": 0.569721146971449,
+      "turnover_cap": 0.25,
+      "turnover_penalty": 31.972114697144903,
+      "turnover_excess": 0.31972114697144904
+    },
+    "training_schedule": {
+      "configured": {
+        "total_timesteps": 1024,
+        "eval_interval": 256,
+        "early_stop": 3,
+        "checkpoint_interval": 512
+      },
+      "effective": {
+        "total_timesteps": 10000,
+        "eval_interval": 2000,
+        "early_stop": 5,
+        "checkpoint_interval": 2000
+      }
+    }
+  },
+  "val": {
+    "steps": 238,
+    "final_equity": 9980.724395921627,
+    "sharpe": -3.8527031828393454,
+    "max_drawdown": 0.0021254743211728266,
+    "turnover": 0.569721146971449,
+    "win_rate": 0.0,
+    "total_cost": 16.226023677680104,
+    "pnl": -19.275604078373362,
+    "cost_pnl_ratio": 0.8417906703056433,
+    "cost_report": {
+      "turnover_total": 135.59363297920487,
+      "fee_slippage_total": 16.226023677680104,
+      "cost_per_turnover": 0.1196665604510249
+    },
+    "artifacts": {
+      "csv": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/trace.csv",
+      "svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/action_position.svg",
+      "costs_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/val_trace/reward_components_timeseries.png"
+    }
+  },
+  "test": {
+    "steps": 238,
+    "final_equity": 9881.655489992247,
+    "sharpe": -9.201725332426271,
+    "max_drawdown": 0.014294124011947629,
+    "turnover": 3.531139347269075,
+    "win_rate": 0.0,
+    "total_cost": 99.27924233335884,
+    "pnl": -118.34451000775334,
+    "cost_pnl_ratio": 0.8389002778992837,
+    "cost_report": {
+      "turnover_total": 840.4111646500398,
+      "fee_slippage_total": 99.27924233335884,
+      "cost_per_turnover": 0.11813175087303873
+    },
+    "artifacts": {
+      "csv": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/trace.csv",
+      "svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/action_position.svg",
+      "costs_svg": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_083514Z_3056cf0/walkforward_01/experiment_07/reports/test_trace/reward_components_timeseries.png"
+    }
+  }
+}
