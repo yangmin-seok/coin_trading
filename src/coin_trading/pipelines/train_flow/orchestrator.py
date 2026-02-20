@@ -28,14 +28,6 @@ def run() -> str:
     cfg = load_config()
     run_id = make_run_id()
     run_dir = Path("runs") / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    plots_dir = run_dir / "plots"
-    reports_dir = run_dir / "reports"
-    artifacts_dir = run_dir / "artifacts"
-    plots_dir.mkdir(exist_ok=True)
-    reports_dir.mkdir(exist_ok=True)
-    artifacts_dir.mkdir(exist_ok=True)
-
     plots_dir = run_dir / "plots"
     reports_dir = run_dir / "reports"
     artifacts_dir = run_dir / "artifacts"
@@ -44,7 +36,7 @@ def run() -> str:
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(artifacts_dir)
+    write_meta(run_dir)
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
@@ -91,6 +83,9 @@ def run() -> str:
         "reason": primary_summary.get("reason"),
         "message": primary_summary.get("message"),
     }
+    if status == "blocked_missing_dependencies" and wf_results:
+        train_summary["reason"] = "missing_dependencies"
+        train_summary["message"] = wf_results[0]["summary"].get("message", "training unavailable")
 
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
@@ -122,8 +117,8 @@ def run() -> str:
                 ]
             ),
             "artifact_paths": {
-                "manifest": "feature_manifest.json",
-                "train_manifest": "train_manifest.json",
+                "manifest": "artifacts/feature_manifest.json",
+                "train_manifest": "artifacts/train_manifest.json",
             },
         },
     )
@@ -138,6 +133,8 @@ def run() -> str:
             "model_train": train_summary,
             "artifacts": {
                 "train_summary_report": "reports/model_train_summary.json",
+                "config": "artifacts/config.yaml",
+                "metadata": "artifacts/metadata.json",
             },
         },
     )
