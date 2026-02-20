@@ -7,15 +7,6 @@ from typing import Any
 import pandas as pd
 
 
-SERIES_STYLE: dict[str, dict[str, str]] = {
-    "train": {"color": "#1f77b4", "dash": ""},
-    "val": {"color": "#ff7f0e", "dash": ""},
-    "test": {"color": "#2ca02c", "dash": ""},
-    "baseline": {"color": "#7f7f7f", "dash": "5,3"},
-    "cash_hold": {"color": "#7f7f7f", "dash": "5,3"},
-    "buy_hold": {"color": "#8c564b", "dash": "3,2"},
-}
-
 
 def render_multi_line_svg(
     df: pd.DataFrame,
@@ -27,10 +18,8 @@ def render_multi_line_svg(
     y_format_left: str = "number",
     y_format_right: str = "number",
 ) -> str:
-    width, height = 900, 340
-    pad_l, pad_r, pad_t, pad_b = 64, 24, 28, 52
-    chart_w = width - pad_l - pad_r
-    chart_h = height - pad_t - pad_b
+    width, height = 980, 420
+    pad_l, pad_r, pad_b = 72, 28, 56
 
     def _series_values(name: str) -> list[float]:
         return [float(v) for v in df.get(name, pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
@@ -48,6 +37,40 @@ def render_multi_line_svg(
     if right_max == right_min:
         right_max = right_min + 1.0
 
+    # Name mapping for recurring series. Avoid broad substring rules like 'val' that collapse colors.
+    fixed_series_style: dict[str, dict[str, str]] = {
+        "cash_hold_return_pct": {"color": "#7f7f7f", "dash": "5,3"},
+        "buy_hold_return_pct": {"color": "#8c564b", "dash": "3,2"},
+        "drawdown": {"color": "#d62728", "dash": ""},
+    }
+
+    def _series_style(name: str, color: str) -> tuple[str, str]:
+        if name in fixed_series_style:
+            spec = fixed_series_style[name]
+            return spec["color"], spec.get("dash", "")
+        return color, ""
+
+    legend: list[str] = []
+    legend_items = [("L", name, color) for name, color in primary_series] + [("R", name, color) for name, color in secondary_series]
+    legend_start_x = pad_l + 4
+    legend_x = legend_start_x
+    legend_y = 54
+    legend_line_h = 16
+    max_x = width - pad_r - 120
+    for side, name, color in legend_items:
+        line_color, _ = _series_style(name, color)
+        label = f"[{side}] {name}"
+        step = max(120, 8 * len(label) + 28)
+        if legend_x > legend_start_x and legend_x + step > max_x:
+            legend_x = legend_start_x
+            legend_y += legend_line_h
+        legend.append(f"<text x='{legend_x}' y='{legend_y}' font-size='11' fill='{line_color}'>{label}</text>")
+        legend_x += step
+
+    pad_t = legend_y + 20
+    chart_w = width - pad_l - pad_r
+    chart_h = height - pad_t - pad_b
+
     def _y_scale(v: float, min_v: float, max_v: float) -> float:
         ratio = (v - min_v) / (max_v - min_v)
         return pad_t + (1 - ratio) * chart_h
@@ -56,12 +79,6 @@ def render_multi_line_svg(
     secondary_scaled = {
         name: [_y_scale(v, right_min, right_max) for v in vals] for name, vals in secondary_data.items()
     }
-
-    def _series_style(name: str, color: str) -> tuple[str, str]:
-        for key, spec in SERIES_STYLE.items():
-            if key in name:
-                return spec["color"], spec.get("dash", "")
-        return color, ""
 
     def _line(name: str, vals: list[float], color: str) -> str:
         if not vals:
@@ -73,9 +90,7 @@ def render_multi_line_svg(
             xx = pad_l + (i / n) * chart_w
             pts.append(f"{xx:.2f},{y:.2f}")
         dash_attr = f" stroke-dasharray='{dash}'" if dash else ""
-        return (
-            f"<polyline fill='none' stroke='{line_color}' stroke-width='1.8'{dash_attr} points='{' '.join(pts)}'/>"
-        )
+        return f"<polyline fill='none' stroke='{line_color}' stroke-width='2'{dash_attr} points='{' '.join(pts)}'/>"
 
     def _format_tick(value: float, mode: str) -> str:
         if mode == "percent":
@@ -99,10 +114,10 @@ def render_multi_line_svg(
             f"<line x1='{pad_l}' y1='{yy:.2f}' x2='{pad_l + chart_w}' y2='{yy:.2f}' stroke='#e6e6e6' stroke-width='1'/>"
         )
         y_label_parts.append(
-            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{_format_tick(y_left, y_format_left)}</text>"
+            f"<text x='{pad_l - 10}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{_format_tick(y_left, y_format_left)}</text>"
         )
         y_label_parts.append(
-            f"<text x='{pad_l + chart_w + 8}' y='{yy + 4:.2f}' text-anchor='start' font-size='11' fill='#666'>{_format_tick(y_right, y_format_right)}</text>"
+            f"<text x='{pad_l + chart_w + 10}' y='{yy + 4:.2f}' text-anchor='start' font-size='11' fill='#666'>{_format_tick(y_right, y_format_right)}</text>"
         )
 
     for i in range(x_ticks):
@@ -110,10 +125,10 @@ def render_multi_line_svg(
         xx = pad_l + ratio * chart_w
         step_val = int(round(ratio * x_steps))
         grid_parts.append(
-            f"<line x1='{xx:.2f}' y1='{pad_t}' x2='{xx:.2f}' y2='{pad_t + chart_h}' stroke='#f0f0f0' stroke-width='1'/>"
+            f"<line x1='{xx:.2f}' y1='{pad_t}' x2='{xx:.2f}' y2='{pad_t + chart_h}' stroke='#f2f2f2' stroke-width='1'/>"
         )
         x_label_parts.append(
-            f"<text x='{xx:.2f}' y='{pad_t + chart_h + 18}' text-anchor='middle' font-size='11' fill='#666'>{step_val}</text>"
+            f"<text x='{xx:.2f}' y='{pad_t + chart_h + 20}' text-anchor='middle' font-size='11' fill='#666'>{step_val}</text>"
         )
 
     axes = (
@@ -122,24 +137,13 @@ def render_multi_line_svg(
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
 
-    legend = []
-    legend_x = 70
-    for name, color in primary_series:
-        line_color, _ = _series_style(name, color)
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[L] {name}</text>")
-        legend_x += 145
-    for name, color in secondary_series:
-        line_color, _ = _series_style(name, color)
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[R] {name}</text>")
-        legend_x += 165
-
     labels = (
-        f"<text x='{pad_l + chart_w / 2:.2f}' y='{height-10}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
-        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [L]' if y_format_left == 'percent' else 'value [L]'}</text>"
-        f"<text x='{pad_l + chart_w + 36}' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [R]' if y_format_right == 'percent' else 'value [R]'}</text>"
-        f"<text x='{pad_l}' y='{pad_t - 8}' font-size='12' fill='#222'>{title}</text>"
-        f"<text x='{pad_l}' y='{pad_t + 8}' font-size='11' fill='#555'>{subtitle}</text>"
+        f"<text x='{pad_l}' y='22' font-size='13' font-weight='600' fill='#222'>{title}</text>"
+        f"<text x='{pad_l}' y='38' font-size='11' fill='#555'>{subtitle}</text>"
         + "".join(legend)
+        + f"<text x='{pad_l + chart_w / 2:.2f}' y='{height - 12}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
+        + f"<text x='18' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [L]' if y_format_left == 'percent' else 'value [L]'}</text>"
+        + f"<text x='{pad_l + chart_w + 40}' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [R]' if y_format_right == 'percent' else 'value [R]'}</text>"
     )
 
     lines = "".join(_line(name, primary_scaled[name], color) for name, color in primary_series)
@@ -155,9 +159,13 @@ def render_multi_line_svg(
         yy = _y_scale(value, right_min, right_max) if axis == "right" else _y_scale(value, left_min, left_max)
         color = ann.get("color", "#111")
         label = ann.get("label", "")
-        marker_parts.append(f"<circle cx='{xx:.2f}' cy='{yy:.2f}' r='3.2' fill='{color}'/>")
+        marker_parts.append(f"<circle cx='{xx:.2f}' cy='{yy:.2f}' r='3.5' fill='{color}'/>")
+        anchor_end = xx > (pad_l + chart_w * 0.78)
+        tx = xx - 8 if anchor_end else xx + 8
+        ty = max(pad_t + 14, min(yy - 8, pad_t + chart_h - 8))
+        text_anchor = 'end' if anchor_end else 'start'
         marker_parts.append(
-            f"<text x='{xx + 6:.2f}' y='{yy - 6:.2f}' font-size='10' fill='{color}'>{label}</text>"
+            f"<text x='{tx:.2f}' y='{ty:.2f}' text-anchor='{text_anchor}' font-size='10' font-weight='600' fill='{color}'>{label}</text>"
         )
 
     return (
@@ -166,6 +174,38 @@ def render_multi_line_svg(
         f"{''.join(grid_parts)}{axes}{''.join(x_label_parts)}{''.join(y_label_parts)}{lines}{''.join(marker_parts)}{labels}"
         "</svg>"
     )
+
+
+def render_summary_cards_svg(summary: dict[str, float], title: str = "Validation Summary") -> str:
+    width, height = 980, 170
+    cards = [
+        ("Final Equity", summary.get("final_equity", 0.0), "{:.2f}", "#1f77b4"),
+        ("Sharpe", summary.get("sharpe", 0.0), "{:.3f}", "#ff7f0e"),
+        ("Max Drawdown", summary.get("max_drawdown", 0.0), "{:.2%}", "#d62728"),
+        ("Turnover", summary.get("turnover", 0.0), "{:.4f}", "#2ca02c"),
+        ("Cost/PNL", summary.get("cost_pnl_ratio", 0.0), "{:.4f}", "#9467bd"),
+    ]
+    gap = 12
+    left = 20
+    top = 42
+    card_w = int((width - left * 2 - gap * (len(cards) - 1)) / len(cards))
+    card_h = 94
+
+    parts = [
+        f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>",
+        f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>",
+        f"<text x='{left}' y='24' font-size='14' font-weight='600' fill='#222'>{title}</text>",
+    ]
+
+    for i, (name, value, fmt, color) in enumerate(cards):
+        x = left + i * (card_w + gap)
+        parts.append(f"<rect x='{x}' y='{top}' width='{card_w}' height='{card_h}' rx='8' ry='8' fill='#fafafa' stroke='#dddddd'/>")
+        parts.append(f"<rect x='{x}' y='{top}' width='4' height='{card_h}' fill='{color}'/>")
+        parts.append(f"<text x='{x + 12}' y='{top + 28}' font-size='11' fill='#666'>{name}</text>")
+        parts.append(f"<text x='{x + 12}' y='{top + 62}' font-size='20' font-weight='700' fill='{color}'>{fmt.format(float(value))}</text>")
+
+    parts.append('</svg>')
+    return ''.join(parts)
 
 
 def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: Path, plots_dir: Path) -> None:
@@ -236,16 +276,22 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: P
     (plots_dir / "learning_curve.svg").write_text(
         render_multi_line_svg(
             plot_frame,
-            primary_series=[("val_return_pct", "#ff7f0e"), ("val_pnl_pct", "#9467bd")],
+            primary_series=[("val_return_pct", "#1f77b4"), ("val_pnl_pct", "#9467bd")],
             secondary_series=[
                 ("val_sharpe", "#ff7f0e"),
-                ("val_turnover", "#bcbd22"),
-                ("val_cost_pnl_ratio", "#8c564b"),
+                ("val_turnover", "#2ca02c"),
+                ("val_cost_pnl_ratio", "#d62728"),
             ],
             title="Validation Metrics Learning Curve",
             subtitle=subtitle,
             annotations=annotations,
             y_format_left="percent",
         ),
+        encoding="utf-8",
+    )
+
+    last_val = history[-1].get("val", {}) if history else {}
+    (plots_dir / "learning_curve_summary.svg").write_text(
+        render_summary_cards_svg(last_val, title="Validation Summary (Last Evaluation)"),
         encoding="utf-8",
     )

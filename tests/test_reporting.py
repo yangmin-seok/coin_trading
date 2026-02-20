@@ -94,9 +94,11 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
     csv_path = reports_dir / "learning_curve.csv"
     json_path = reports_dir / "learning_curve.json"
     svg_path = plots_dir / "learning_curve.svg"
+    summary_svg_path = plots_dir / "learning_curve_summary.svg"
     assert csv_path.exists()
     assert json_path.exists()
     assert svg_path.exists()
+    assert summary_svg_path.exists()
 
     frame = pd.read_csv(csv_path)
     assert list(frame.columns) == [
@@ -112,4 +114,8 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
     svg_text = svg_path.read_text(encoding="utf-8")
     assert "value [R]" in svg_text
     assert "[R] val_turnover" in svg_text
-    assert "[L] val_final_equity" in svg_text
+    assert "[L] val_return_pct" in svg_text
+
+    summary_svg_text = summary_svg_path.read_text(encoding="utf-8")
+    assert "Validation Summary" in summary_svg_text
+    assert "Final Equity" in summary_svg_text

@@ -91,18 +91,15 @@ python -m src.coin_trading.pipelines.train
 - 환경 관측치의 `position_ratio`는 signed ratio를 유지하며 학습 안정성을 위해 `[-1.0, 1.0]`로 clip합니다.
 
 
-요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
+## 3) Train은 **실제 모델 학습/선택 단계**
 
-## 3) Train은 "목표"가 아니라 "런타임 점검 게이트"
-
-요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
+이제 Train은 단순 점검이 아니라, **워크포워드 학습 → 검증/테스트 평가 → 모델 선택**까지 수행하는 핵심 단계입니다.
 
 - 캔들 데이터 로딩/부트스트랩
-- 오프라인 피처 계산
-- TradingEnv + baseline 정책 1회 probe
-- run 산출물(manifest/summary/artifact) 생성
-
-즉, Train은 "실거래 전 점검 단계" 역할에 가깝습니다.
+- 오프라인 피처 계산 + 스케일링
+- RL 학습(PPO/SAC)
+- 주기적 검증(Val) 평가 + 얼리 스톱
+- Test 평가 및 리포트/시각화 생성
 
 ### 3-1. 실행 순서 상세
 
@@ -113,20 +110,73 @@ python -m src.coin_trading.pipelines.train
 3. `config.yaml`, `meta.json` 기록
 4. 학습용 캔들 로드 (`data/processed/...`)
 5. 없으면 bootstrap 캔들 생성 + parquet 저장 시도
-6. 데이터셋/split/피처 NaN 요약 생성
-7. `TradingEnv`에서 baseline(`VolTarget`) probe 롤아웃
-8. `data_manifest.json`, `feature_manifest.json`, `train_manifest.json`, `dataset_summary.json` 기록
+6. 워크포워드 split 생성
+7. split별 학습/평가 반복 (reward 타입 × 반복 실험 포함)
+8. best 실험 선택 + 요약 리포트 저장
 
 ### 3-2. Train 결과에서 확인할 핵심 파일
 
 `runs/<run_id>/`:
 
-- `train_manifest.json`: 현재 상태(ready/blocked), probe 요약
-- `data_manifest.json`: bootstrap 여부, 커버리지
-- `feature_manifest.json`: 피처 정의/구현 해시
-- `dataset_summary.json`: split row/NaN 비율
-- `train_probe_summary.json`: steps/reward/equity
-- `train_probe/trace.csv`, `train_probe/reward_equity.svg`: probe 추적 아티팩트
+- `reports/model_train_summary.json`: 워크포워드 전체 결과, 선택된 best 실험, 지표 요약
+- `walkforward_XX/.../reports/learning_curve.csv|json`: 학습 이력 원본 수치
+- `walkforward_XX/.../plots/learning_curve.svg`: 검증 지표 변화(러닝커브)
+- `walkforward_XX/.../reports/val_trace/*`: 검증 구간 트레이스/시각화
+- `walkforward_XX/.../reports/test_trace/*`: 테스트 구간 트레이스/시각화
+- `walkforward_XX/.../artifacts/metrics.json`: 최종 val/test metrics + 아티팩트 경로
+
+### 3-3. Train 이미지 해석 가이드 (중요)
+
+아래는 Train에서 자주 보는 이미지와 **해석 기준**입니다.
+
+1. `plots/learning_curve.svg`  
+   - 무엇을 보나: 학습 진행 중 검증(Val) 성능 변화.
+     - Left 축: `val_return_pct`, `val_pnl_pct`
+     - Right 축: `val_sharpe`, `val_turnover`, `val_cost_pnl_ratio`
+   - 좋다고 볼 수 있는 패턴:
+     - `val_return_pct` 우상향 + `val_sharpe`가 0 이상에서 개선
+     - `val_turnover`가 과도하게 치솟지 않음
+     - `val_cost_pnl_ratio`가 하향 또는 낮은 수준 유지
+   - 경계 패턴:
+     - 수익률은 오르는데 `val_cost_pnl_ratio`도 급상승 → 거래비용으로 실익 악화 가능성
+     - `val_sharpe` 변동성이 매우 큼 → 정책이 불안정하거나 과최적화 가능성
+
+2. `reports/val_trace/reward_equity.svg`, `reports/test_trace/reward_equity.svg`  
+   - 무엇을 보나: 전략 수익률(좌축) vs 기준선(cash hold, buy&hold).
+   - 좋다고 볼 수 있는 패턴:
+     - 전략 곡선이 buy&hold 대비 장기적으로 위에 위치
+     - 급락 후 회복이 빠르고, 최종 수익률이 기준선 대비 우위
+   - 해석 팁:
+     - Val에서 좋고 Test에서도 유사하면 일반화 가능성↑
+     - Val만 좋고 Test에서 꺾이면 과적합 신호로 해석
+
+3. `reports/val_trace/drawdown_turnover.svg`, `reports/test_trace/drawdown_turnover.svg`  
+   - 무엇을 보나: Drawdown(손실 구간 깊이)과 유효 포지션/노출 변화.
+   - 좋다고 볼 수 있는 패턴:
+     - 드로우다운 피크(최대낙폭)가 제한적
+     - 포지션 전환이 과도하게 잦지 않음(비용 관점 유리)
+   - 경계 패턴:
+     - 급격한 포지션 전환 + 깊은 드로우다운 동반 → 리스크/비용 동시 악화
+
+4. `reports/val_trace/reward_components_timeseries.png`, `reports/test_trace/reward_components_timeseries.png`  
+   - 무엇을 보나: 보상 구성요소(`reward_pnl`, `reward_cost`, `reward_penalty`, `reward`)의 시계열.
+   - 좋다고 볼 수 있는 패턴:
+     - `reward_pnl` 기여가 우세하고,
+     - `reward_cost`, `reward_penalty`가 장기적으로 reward를 압도하지 않음
+   - 경계 패턴:
+     - `reward_cost`/`reward_penalty` 진폭이 커서 총 `reward`가 지속적으로 눌림
+     - 특정 구간에서 penalty가 급등 → 해당 리스크 제약(예: DD, inactivity) 재튜닝 필요
+
+5. (실행 옵션에 따라) 공통 리스크 플롯
+   - `drawdown_curve.png`: train/valid/test의 drawdown 비교.
+     - 해석: Test 구간의 drawdown이 Train 대비 비정상적으로 크면 일반화 실패 가능성.
+   - `monthly_returns_heatmap.png`: 월별 수익 기여의 계절성/편향 확인.
+     - 해석: 몇 개 월에만 성과가 집중되면 레짐 의존성(취약성) 가능성.
+
+실무적으로는 **단일 이미지 하나**보다 아래 3개를 함께 보시면 됩니다.
+- 수익성: `reward_equity.svg`
+- 안정성: `drawdown_turnover.svg`
+- 비용/패널티 구조: `reward_components_timeseries.png`
 
 ---
 

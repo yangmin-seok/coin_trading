@@ -64,6 +64,7 @@ class SplitConfig(BaseModel):
 
 class TrainConfig(BaseModel):
     algo: Literal["ppo", "sac"] = "ppo"
+    device: str = "auto"
     total_timesteps: int = Field(ge=256, default=20_000)
     learning_rate: float = Field(gt=0.0, default=3e-4)
     batch_size: int = Field(gt=0, default=64)

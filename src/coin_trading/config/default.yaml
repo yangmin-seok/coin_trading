@@ -55,6 +55,7 @@ split:
 
 train:
   algo: ppo
+  device: auto
   total_timesteps: 1024
   learning_rate: 0.0003
   batch_size: 64

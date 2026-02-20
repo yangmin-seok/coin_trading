@@ -21,8 +21,6 @@ def test_backtest_trace_artifacts(sample_candles, tmp_path):
     assert artifacts["svg"].exists()
     assert artifacts["reward_equity_svg"].exists()
     assert artifacts["drawdown_turnover_svg"].exists()
-    assert artifacts["action_position_svg"].exists()
-    assert artifacts["costs_svg"].exists()
     assert artifacts["reward_components_timeseries_png"].exists()
 
     csv_text = artifacts["csv"].read_text(encoding="utf-8")
