@@ -109,6 +109,11 @@ def run() -> str:
             "split_rows": {k: v["rows"] for k, v in dataset_summary["splits"].items()},
             "epochs": 0,
             "model": train_summary.get("model", "none"),
+            "overfit_warning": bool(train_summary.get("overfit_warning", False)),
+            "report_artifacts": {
+                "trade_stats_report_html": train_summary.get("artifacts", {}).get("trade_stats_report_html"),
+                "benchmark_comparison_png": train_summary.get("artifacts", {}).get("benchmark_comparison_png"),
+            },
             "model_train": train_summary,
             "artifacts": {
                 "train_summary_report": "reports/model_train_summary.json",
