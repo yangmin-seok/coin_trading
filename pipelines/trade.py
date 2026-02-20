@@ -3,10 +3,15 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from agents.baselines import BuyAndHold
 from config.loader import load_config
-from execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
+from execution.marketdata import CandleClosedEvent, GapFiller, MarketDataWS, MemoryStateStore, MessageStream
+from execution.orders import OrderExecutor, OrderRequest
 from execution.reconcile import Reconciler
+from execution.risk import RiskLimits, RiskManager
+from execution.state import PortfolioState
 from integrations.binance_rest import BinanceRESTClient
 from monitoring.alerts import Alert, AlertEngine
 from monitoring.metrics import MetricsLogger
@@ -20,6 +25,10 @@ class TradeRuntime:
     queue: asyncio.Queue
     metrics: MetricsLogger
     alerts: AlertEngine
+    risk: RiskManager
+    orders: OrderExecutor
+    state: PortfolioState
+    policy: BuyAndHold
 
 
 def build_runtime() -> TradeRuntime:
@@ -33,6 +42,10 @@ def build_runtime() -> TradeRuntime:
     reconciler = Reconciler()
     metrics = MetricsLogger(path=(Path("runs") / "runtime_metrics.jsonl"))
     alerts = AlertEngine()
+    risk = RiskManager(RiskLimits(max_position_ratio=1.0, min_position_ratio=0.0, max_notional_per_trade=5_000.0))
+    orders = OrderExecutor()
+    state = PortfolioState(cash=10_000.0, position_qty=0.0, equity=10_000.0, peak_equity=10_000.0)
+    policy = BuyAndHold()
     return TradeRuntime(
         market_ws=market_ws,
         reconciler=reconciler,
@@ -40,7 +53,39 @@ def build_runtime() -> TradeRuntime:
         queue=queue,
         metrics=metrics,
         alerts=alerts,
+        risk=risk,
+        orders=orders,
+        state=state,
+        policy=policy,
     )
+
+
+def process_candle_event(runtime: TradeRuntime, event: CandleClosedEvent) -> dict[str, Any]:
+    price = float(event.c)
+    runtime.state.mark_to_market(price)
+    equity = max(runtime.state.equity, 1e-12)
+    current_ratio = (runtime.state.position_qty * price) / equity
+
+    target_ratio = float(runtime.policy.act(obs=None, info={"close": price}))
+    decision = runtime.risk.evaluate_target(target_ratio, current_ratio, equity, price)
+    if not decision.approved:
+        runtime.metrics.emit({"decision": "rejected", "reasons": decision.reasons})
+        return {"status": "risk_rejected", "reasons": decision.reasons}
+
+    side = "BUY" if decision.order_qty > 0 else "SELL"
+    req = OrderRequest(symbol=event.symbol, side=side, quantity=abs(decision.order_qty))
+    result = runtime.orders.place_market_order(req, mark_price=price)
+    if not result.accepted:
+        runtime.metrics.incr("order_failures", 1)
+        runtime.metrics.emit({"decision": "order_failed", "reason": result.reason})
+        return {"status": "order_failed", "reason": result.reason}
+
+    signed_qty = result.executed_qty if side == "BUY" else -result.executed_qty
+    runtime.state.cash -= signed_qty * result.avg_price
+    runtime.state.position_qty += signed_qty
+    runtime.state.mark_to_market(price)
+    runtime.metrics.emit({"decision": "filled", "target_ratio": decision.target_position_ratio, "qty": signed_qty})
+    return {"status": "filled", "qty": signed_qty, "price": result.avg_price}
 
 
 def reconcile_once(runtime: TradeRuntime, internal_total: float, quote_asset: str = "USDT") -> Alert | None:
@@ -51,6 +96,39 @@ def reconcile_once(runtime: TradeRuntime, internal_total: float, quote_asset: st
         runtime.metrics.incr("reconcile_mismatches", 1)
     runtime.metrics.emit({"reconcile_reason": result.reason})
     return runtime.alerts.check_reconcile(result.matched, result.reason)
+
+
+async def run_forever(
+    runtime: TradeRuntime,
+    stream: MessageStream,
+    *,
+    payload_extractor=None,
+    reconcile_interval_s: float = 60.0,
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    stop_event = stop_event or asyncio.Event()
+    await runtime.market_ws.start(stream, payload_extractor=payload_extractor)
+    loop = asyncio.get_running_loop()
+    last_reconcile_at = loop.time()
+
+    try:
+        while not stop_event.is_set():
+            try:
+                event = await asyncio.wait_for(runtime.queue.get(), timeout=0.5)
+                process_candle_event(runtime, event)
+            except asyncio.TimeoutError:
+                pass
+
+            now = loop.time()
+            if now - last_reconcile_at >= reconcile_interval_s:
+                try:
+                    reconcile_once(runtime, runtime.state.equity)
+                except Exception as exc:
+                    runtime.metrics.incr("reconcile_mismatches", 1)
+                    runtime.metrics.emit({"reconcile_reason": f"exception:{type(exc).__name__}"})
+                last_reconcile_at = now
+    finally:
+        await runtime.market_ws.stop(stream)
 
 
 def run() -> str:

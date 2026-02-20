@@ -43,6 +43,10 @@ def write_feature_manifest(run_dir: Path, payload: dict[str, Any]) -> None:
     (run_dir / "feature_manifest.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def write_train_manifest(run_dir: Path, payload: dict[str, Any]) -> None:
+    (run_dir / "train_manifest.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def implementation_hash(files: list[Path]) -> str:
     h = hashlib.sha256()
     for p in files:
