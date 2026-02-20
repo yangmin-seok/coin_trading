@@ -82,10 +82,12 @@
   - `ReconcileResult`, `Reconciler`: 내부/거래소 자산 비교.
 - `state.py`
   - `PortfolioState`: 내부 포트폴리오 상태 모델.
-- `orders.py`, `risk.py`
-  - 현재 Placeholder.
+- `orders.py`
+  - `OrderManager`: 시장가 주문 생성/취소, 목표 포지션→주문 의도 변환, execution report 반영.
+- `risk.py`
+  - `RiskManager`: target clamp, drawdown/leverage 기반 승인 판단.
 
-상태: **부분 구현** (시장데이터/리컨실은 됨, 주문/리스크 미구현)
+상태: **핵심 구현됨**
 
 ## integrations/
 
@@ -93,10 +95,12 @@
   - `BinanceMarketWSConfig`, `extract_kline_payload(...)`: 바이낸스 kline payload 정규화.
 - `binance_rest.py`
   - `BinanceRESTClient`: REST 요청(klines/account/open orders) + 재시도.
-- `binance_ws_user.py`, `telegram.py`
-  - 현재 Placeholder.
+- `binance_ws_user.py`
+  - `extract_user_payload(...)`, `BinanceUserWS`: user 이벤트 파싱 및 큐 전달.
+- `telegram.py`
+  - `TelegramSender.send_text(...)`: Telegram Bot API `sendMessage` 호출.
 
-상태: **부분 구현**
+상태: **부분 구현** (재연결/listenKey/재시도 정책 고도화 필요)
 
 ## monitoring/
 
@@ -119,37 +123,38 @@
   - `summarize_dataset_for_training(...)`: split 별 row 수와 feature NaN 비율 산출.
   - `run()`: 실행 폴더 생성 + meta/data/feature/train manifest + dataset summary 기록.
 - `trade.py`
-  - `TradeRuntime`, `build_runtime`, `reconcile_once`, `run`(현재 runtime ready 문자열 반환 중심).
+  - `TradeRuntime`, `build_runtime`, `reconcile_once`, `process_market_event`, `run(max_events, timeout_s)`.
+  - queue 이벤트를 피처/정책/리스크/주문의도/메트릭으로 연결하는 기본 루프 포함.
 - `test.py`
   - `run()`: 스캐폴드 문자열 반환.
 
-상태: **부분 구현** (train 산출물 강화 완료, trade/test 파이프라인 실행 루프는 미완)
+상태: **부분 구현** (기본 실행 루프 구현, 실주문 송신/복구 자동화는 추가 필요)
 
 ## agents/
 
 - `baselines.py`
   - `BaselinePolicy`, `BuyAndHold`, `MACrossover`, `VolTarget`: 베이스라인 정책.
-- `policy_wrapper.py`, `sb3_ppo.py`, `sb3_sac.py`
-  - Placeholder.
+- `policy_wrapper.py`
+  - `PolicyWrapper`: 공통 `predict(...)` 인터페이스로 정책 추상화.
+- `sb3_ppo.py`, `sb3_sac.py`
+  - `PPOPolicyAdapter`, `SACPolicyAdapter`: SB3 `model.predict(...)` 결과를 공통 act 규격으로 변환.
 
-상태: **부분 구현**
+상태: **부분 구현** (실제 학습/로드 파이프라인 연동은 미구현)
 
 ---
 
 ## 2) 반드시 구현해야 할 TODO (우선순위)
 
-1. `integrations/binance_ws_user.py` 실제 구현
-   - user stream 구독, 계정/주문 이벤트 파싱, 재연결.
-2. `execution/orders.py`, `execution/risk.py` 구현
-   - 주문 생성/취소/체결 반영, 포지션 한도/리스크 제약.
-3. `pipelines/trade.py` 실시간 메인 루프 구현
-   - market queue 소비 → feature/policy/risk/orders 처리 → state/reconcile/metrics/alerts 연동.
-4. `integrations/telegram.py` 연동
-   - `AlertEngine` 이벤트를 외부 알림 채널로 전송.
-5. `agents/*` 고도화
-   - SB3 PPO/SAC 실연결 + policy wrapper 적용.
-6. 운영 안정성
-   - shutdown 처리, 백오프 정책 튜닝, 장애 복구(runbook) 강화.
+1. `pipelines/trade.py` 실주문 전송/복구 자동화
+   - 주문 요청 체결 추적, 실패 시 재시도/보상 트랜잭션, graceful shutdown.
+2. `integrations/binance_ws_user.py` 고도화
+   - listenKey 발급/keepalive/만료 대응, 연결 복구 상태머신 추가.
+3. `integrations/telegram.py` 운영 품질 강화
+   - 네트워크 예외 처리, 백오프, 레이트리밋 대응.
+4. `agents/*` 고도화
+   - SB3 모델 저장/로드/평가 루틴과 파이프라인 연동.
+5. 운영 안정성
+   - 장애 복구(runbook), 메트릭 대시보드, 실운영 알람 라우팅 강화.
 
 ---
 
@@ -158,3 +163,14 @@
 - **지금 상태는 “기본 뼈대 + 일부 핵심 구현 완료” 단계**.
 - 학습용 메타데이터 기록, 피처 계산/파리티, 시장데이터 close-candle 처리, 리컨실/모니터링 기초는 준비됨.
 - 실제 운영 트레이딩(주문/리스크/유저스트림/알림)은 아직 미완이며, 해당 구간이 핵심 개발 잔여분.
+
+
+## 4) 이번 구현 계획표/진행 결과
+
+| 단계 | 작업 | 상태 |
+|---|---|---|
+| 1 | 구조 점검 및 범위 확정 | 완료 |
+| 2 | orders/risk/user ws/telegram/policy wrapper 구현 | 완료 |
+| 3 | trade runtime에 이벤트 처리 루프(`process_market_event`) 연결 | 완료 |
+| 4 | README + 코드맵 문서 업데이트 | 완료 |
+| 5 | 테스트 실행 및 검증 | 완료 |

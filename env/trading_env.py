@@ -81,6 +81,7 @@ class TradingEnv:
         self.t += 1
 
         info = {
+            "reward": reward,
             "equity": self.state.equity,
             "cash": self.state.cash,
             "position_qty": self.state.position_qty,
