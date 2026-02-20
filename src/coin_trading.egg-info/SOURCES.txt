@@ -8,7 +8,9 @@ src/coin_trading.egg-info/requires.txt
 src/coin_trading.egg-info/top_level.txt
 src/coin_trading/agents/__init__.py
 src/coin_trading/agents/baselines.py
+src/coin_trading/agents/linear_pg.py
 src/coin_trading/agents/policy_wrapper.py
+src/coin_trading/agents/sb3_env.py
 src/coin_trading/agents/sb3_ppo.py
 src/coin_trading/agents/sb3_sac.py
 src/coin_trading/config/__init__.py
