@@ -28,7 +28,13 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 
 ```bash
 python -m venv .venv
+
+# bash / zsh
 source .venv/bin/activate
+
+# (선택) zsh에서 명시적으로 실행하고 싶다면
+# zsh -c "source .venv/bin/activate && python -m pip install -e .[dev]"
+
 python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 ```
@@ -147,6 +153,19 @@ python -m compileall .
 ```
 
 ---
+
+
+### 6-1. 백테스트 의사결정 추적 시각화(테스트 아티팩트)
+
+아래 테스트는 백테스트 스텝에서 모델의 buy/hold/sell 신호(`filled_qty` 기반)와 `reward`, `equity` 추이를 아티팩트로 저장합니다.
+
+```bash
+pytest -q tests/test_backtest_trace_visualization.py
+```
+
+생성물(테스트 tmp 디렉토리):
+- `trace.csv`: step별 signal(reward/equity 포함)
+- `reward_equity.svg`: reward/equity 라인 차트
 
 ## 7) 현재 구현 범위 / 비구현 범위
 
