@@ -223,11 +223,10 @@ def _rollout_model(model: Any, candles_df: pd.DataFrame, features_df: pd.DataFra
 
 def _render_learning_curve_svg(history: list[dict[str, Any]], out_path: Path) -> None:
     width, height = 900, 340
-    pad_l, pad_r, pad_t, pad_b = 50, 20, 20, 40
+    pad_l, pad_r, pad_t, pad_b = 70, 20, 20, 45
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
-    x = list(range(len(history)))
     sharpe = [float(item["val"]["sharpe"]) for item in history]
     equity = [float(item["val"]["final_equity"]) for item in history]
 
@@ -253,15 +252,22 @@ def _render_learning_curve_svg(history: list[dict[str, Any]], out_path: Path) ->
         pts = [f"{pad_l + (i / n) * chart_w:.2f},{yy:.2f}" for i, yy in enumerate(vals)]
         return f"<polyline fill='none' stroke='{color}' stroke-width='2' points='{' '.join(pts)}' />"
 
+    y_ticks = "".join(
+        f"<text x='{pad_l-8}' y='{pad_t + i * chart_h / 4:.1f}' text-anchor='end' font-size='10' fill='#666'>{4-i}</text>"
+        for i in range(5)
+    )
+
     svg = (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
         f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>"
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + chart_h}' stroke='#999'/>"
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
         f"{_line(y1, '#1f77b4')}{_line(y2, '#2ca02c')}"
+        f"{y_ticks}"
         f"<text x='55' y='18' font-size='12' fill='#1f77b4'>val_sharpe</text>"
         f"<text x='170' y='18' font-size='12' fill='#2ca02c'>val_final_equity</text>"
-        f"<text x='{pad_l}' y='{height-8}' font-size='11' fill='#666'>eval step</text>"
+        f"<text x='{pad_l + chart_w/2:.1f}' y='{height-8}' text-anchor='middle' font-size='11' fill='#666'>evaluation step index (x-axis)</text>"
+        f"<text x='14' y='{pad_t + chart_h/2:.1f}' font-size='11' fill='#666' transform='rotate(-90 14,{pad_t + chart_h/2:.1f})'>normalized metric value (y-axis)</text>"
         f"</svg>"
     )
     out_path.write_text(svg, encoding="utf-8")
