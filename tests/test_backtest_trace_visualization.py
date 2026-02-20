@@ -31,3 +31,9 @@ def test_backtest_trace_artifacts(sample_candles, tmp_path):
     assert "reward_cost" in csv_text
     assert "reward_penalty" in csv_text
     assert any(label in csv_text for label in ["buy", "sell", "hold"])
+
+
+    svg_text = artifacts["reward_equity_svg"].read_text(encoding="utf-8")
+    assert "step" in svg_text
+    assert "value" in svg_text
+    assert "stroke='#e6e6e6'" in svg_text

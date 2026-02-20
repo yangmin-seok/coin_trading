@@ -9,7 +9,7 @@ import pandas as pd
 
 def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title: str) -> str:
     width, height = 900, 340
-    pad_l, pad_r, pad_t, pad_b = 50, 20, 20, 40
+    pad_l, pad_r, pad_t, pad_b = 64, 24, 28, 52
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
@@ -17,20 +17,16 @@ def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title
         name: [float(v) for v in df.get(name, pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
         for name, _ in series
     }
+    all_vals = [v for vals in y_data.values() for v in vals] or [0.0]
+    y_min, y_max = min(all_vals), max(all_vals)
+    if y_max == y_min:
+        y_max = y_min + 1.0
 
-    def _scale(vals: list[float]) -> list[float]:
-        if not vals:
-            return []
-        vmin, vmax = min(vals), max(vals)
-        if vmax == vmin:
-            vmax = vmin + 1.0
-        out: list[float] = []
-        for v in vals:
-            ratio = (v - vmin) / (vmax - vmin)
-            out.append(pad_t + (1 - ratio) * chart_h)
-        return out
+    def _y_scale(v: float) -> float:
+        ratio = (v - y_min) / (y_max - y_min)
+        return pad_t + (1 - ratio) * chart_h
 
-    scaled = {name: _scale(vals) for name, vals in y_data.items()}
+    scaled = {name: [_y_scale(v) for v in vals] for name, vals in y_data.items()}
 
     def _line(vals: list[float], color: str) -> str:
         if not vals:
@@ -40,26 +36,60 @@ def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title
         for i, y in enumerate(vals):
             xx = pad_l + (i / n) * chart_w
             pts.append(f"{xx:.2f},{y:.2f}")
-        return f"<polyline fill='none' stroke='{color}' stroke-width='2' points='{' '.join(pts)}' />"
+        return f"<polyline fill='none' stroke='{color}' stroke-width='1.8' points='{' '.join(pts)}'/>"
 
-    guides = (
+    x_steps = max(1, len(df) - 1)
+    x_ticks = min(6, x_steps + 1)
+    y_ticks = 6
+
+    grid_parts: list[str] = []
+    x_label_parts: list[str] = []
+    y_label_parts: list[str] = []
+
+    for i in range(y_ticks):
+        ratio = i / (y_ticks - 1)
+        yy = pad_t + ratio * chart_h
+        y_value = y_max - ratio * (y_max - y_min)
+        grid_parts.append(
+            f"<line x1='{pad_l}' y1='{yy:.2f}' x2='{pad_l + chart_w}' y2='{yy:.2f}' stroke='#e6e6e6' stroke-width='1'/>"
+        )
+        y_label_parts.append(
+            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{y_value:.4g}</text>"
+        )
+
+    for i in range(x_ticks):
+        ratio = i / (x_ticks - 1) if x_ticks > 1 else 0.0
+        xx = pad_l + ratio * chart_w
+        step_val = int(round(ratio * x_steps))
+        grid_parts.append(
+            f"<line x1='{xx:.2f}' y1='{pad_t}' x2='{xx:.2f}' y2='{pad_t + chart_h}' stroke='#f0f0f0' stroke-width='1'/>"
+        )
+        x_label_parts.append(
+            f"<text x='{xx:.2f}' y='{pad_t + chart_h + 18}' text-anchor='middle' font-size='11' fill='#666'>{step_val}</text>"
+        )
+
+    axes = (
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + chart_h}' stroke='#999'/>"
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
 
     legend = []
     for i, (name, color) in enumerate(series):
-        legend.append(f"<text x='{55 + i * 120}' y='18' font-size='12' fill='{color}'>{name}</text>")
-    labels = f"<text x='{pad_l}' y='{height-8}' font-size='11' fill='#666'>step</text>"
-    labels += "".join(legend)
-    labels += f"<text x='{pad_l}' y='{pad_t + 12}' font-size='12' fill='#222'>{title}</text>"
+        legend.append(f"<text x='{70 + i * 130}' y='18' font-size='12' fill='{color}'>{name}</text>")
+
+    labels = (
+        f"<text x='{pad_l + chart_w / 2:.2f}' y='{height-10}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
+        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value</text>"
+        f"<text x='{pad_l}' y='{pad_t - 8}' font-size='12' fill='#222'>{title}</text>"
+        + "".join(legend)
+    )
 
     lines = "".join(_line(scaled[name], color) for name, color in series)
 
     return (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
         f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>"
-        f"{guides}{lines}{labels}"
+        f"{''.join(grid_parts)}{axes}{''.join(x_label_parts)}{''.join(y_label_parts)}{lines}{labels}"
         "</svg>"
     )
 
