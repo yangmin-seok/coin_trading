@@ -11,7 +11,7 @@ def test_run_manager_writes_manifests(tmp_path: Path):
     write_feature_manifest(tmp_path, {"feature_set_version": "v1"})
     write_train_manifest(tmp_path, {"status": "ready"})
 
-    assert (tmp_path / "meta.json").exists()
+    assert (tmp_path / "artifacts" / "metadata.json").exists()
     assert (tmp_path / "data_manifest.json").exists()
     assert (tmp_path / "feature_manifest.json").exists()
     assert (tmp_path / "train_manifest.json").exists()

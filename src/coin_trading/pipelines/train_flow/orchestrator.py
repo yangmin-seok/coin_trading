@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
@@ -25,13 +26,18 @@ from src.coin_trading.pipelines.train_flow.train import train_sb3
 
 def run() -> str:
     cfg = load_config()
-    run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
+    run_id = make_run_id()
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    plots_dir = run_dir / "plots"
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    for directory in (plots_dir, reports_dir, artifacts_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
-    (run_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(run_dir)
+    (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
@@ -76,7 +82,7 @@ def run() -> str:
         "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
     }
 
-    (run_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
+    (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
     write_data_manifest(
         run_dir,
@@ -105,18 +111,25 @@ def run() -> str:
                     Path(__file__).resolve().parents[2] / "features" / "offline.py",
                 ]
             ),
+            "artifact_paths": {
+                "manifest": "feature_manifest.json",
+                "train_manifest": "train_manifest.json",
+            },
         },
     )
     write_train_manifest(
         run_dir,
         {
             "status": status,
-            "missing": [] if status == "ready" else ["stable-baselines3/gymnasium dependencies"],
+            "missing": [] if status == "ready" else [train_summary.get("message", "training unavailable")],
             "split_rows": {k: v["rows"] for k, v in dataset_summary["splits"].items()},
             "epochs": 0,
             "model": train_summary.get("model", "none"),
             "model_train": train_summary,
+            "artifacts": {
+                "train_summary_report": "reports/model_train_summary.json",
+            },
         },
     )
-    (run_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
+    (reports_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
     return run_id
