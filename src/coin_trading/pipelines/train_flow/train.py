@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+from itertools import product
 from pathlib import Path
 from typing import Any
 
@@ -61,10 +62,48 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
     raise ValueError(f"unsupported algo: {algo_name}")
 
 
-def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame, cfg: AppConfig, run_dir: Path) -> dict[str, Any]:
-    if train_df.empty or val_df.empty:
-        return {"enabled": False, "reason": "insufficient_split_rows"}
+def _unique(values: list[float]) -> list[float]:
+    seen = set()
+    result: list[float] = []
+    for value in values:
+        key = float(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
 
+
+def _build_experiment_grid(cfg: AppConfig) -> list[dict[str, float]]:
+    axes = cfg.exploration.axes
+    lambdas = _unique(axes.lambda_turnover)
+    min_deltas = _unique(axes.min_delta)
+    max_steps = _unique(axes.max_step_change)
+    grid = [
+        {
+            "lambda_turnover": float(lambda_turnover),
+            "min_delta": float(min_delta),
+            "max_step_change": float(max_step_change),
+        }
+        for lambda_turnover, min_delta, max_step_change in product(lambdas, min_deltas, max_steps)
+    ]
+    baseline = {
+        "lambda_turnover": float(cfg.reward.lambda_turnover),
+        "min_delta": float(cfg.execution.min_delta),
+        "max_step_change": float(cfg.execution.max_step_change),
+    }
+    if baseline in grid:
+        grid.remove(baseline)
+    return [baseline, *grid]
+
+
+def _run_single_experiment(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    cfg: AppConfig,
+    run_dir: Path,
+) -> dict[str, Any]:
     reports_dir = run_dir / "reports"
     artifacts_dir = run_dir / "artifacts"
     plots_dir = run_dir / "plots"
@@ -157,3 +196,82 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         encoding="utf-8",
     )
     return summary
+
+
+def _is_better_candidate(candidate: dict[str, Any], current: dict[str, Any] | None, baseline: dict[str, Any]) -> bool:
+    if current is None:
+        return True
+
+    cand_test = candidate.get("test_metrics", {})
+    curr_test = current.get("test_metrics", {})
+    base_test = baseline.get("test_metrics", {})
+
+    cand_eq = float(cand_test.get("final_equity", 0.0) or 0.0)
+    curr_eq = float(curr_test.get("final_equity", 0.0) or 0.0)
+    base_eq = float(base_test.get("final_equity", 0.0) or 0.0)
+
+    cand_cost = float(cand_test.get("total_cost", float("inf")) or float("inf"))
+    curr_cost = float(curr_test.get("total_cost", float("inf")) or float("inf"))
+    base_cost = float(base_test.get("total_cost", float("inf")) or float("inf"))
+
+    cand_meets = cand_eq > base_eq and cand_cost < base_cost
+    curr_meets = curr_eq > base_eq and curr_cost < base_cost
+    if cand_meets != curr_meets:
+        return cand_meets
+    if cand_eq != curr_eq:
+        return cand_eq > curr_eq
+    return cand_cost < curr_cost
+
+
+def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame, cfg: AppConfig, run_dir: Path) -> dict[str, Any]:
+    if train_df.empty or val_df.empty:
+        return {"enabled": False, "reason": "insufficient_split_rows"}
+
+    experiments = _build_experiment_grid(cfg)
+    experiment_results: list[dict[str, Any]] = []
+
+    for idx, axes in enumerate(experiments, start=1):
+        exp_cfg = cfg.model_copy(deep=True)
+        exp_cfg.reward.lambda_turnover = axes["lambda_turnover"]
+        exp_cfg.execution.min_delta = axes["min_delta"]
+        exp_cfg.execution.max_step_change = axes["max_step_change"]
+
+        exp_dir = run_dir / f"experiment_{idx:02d}"
+        summary = _run_single_experiment(train_df, val_df, test_df, exp_cfg, exp_dir)
+        experiment_results.append(
+            {
+                "id": idx,
+                "axes": axes,
+                "run_dir": str(exp_dir.relative_to(run_dir)),
+                "summary": summary,
+            }
+        )
+
+    baseline = experiment_results[0]["summary"]
+    selected: dict[str, Any] | None = None
+    for candidate in experiment_results:
+        if _is_better_candidate(candidate["summary"], selected["summary"] if selected else None, baseline):
+            selected = candidate
+
+    if selected is None:
+        return {"enabled": False, "reason": "no_experiment_result"}
+
+    selected_summary = selected["summary"]
+    selected_summary["selected_experiment"] = {
+        "id": selected["id"],
+        "axes": selected["axes"],
+        "run_dir": selected["run_dir"],
+        "criteria": "maximize test final_equity while requiring lower total_cost than baseline when possible",
+    }
+    selected_summary["experiments"] = [
+        {
+            "id": item["id"],
+            "axes": item["axes"],
+            "run_dir": item["run_dir"],
+            "test_final_equity": item["summary"].get("test_metrics", {}).get("final_equity", 0.0),
+            "test_total_cost": item["summary"].get("test_metrics", {}).get("total_cost", 0.0),
+            "test_cost_pnl_ratio": item["summary"].get("test_metrics", {}).get("cost_pnl_ratio", 0.0),
+        }
+        for item in experiment_results
+    ]
+    return selected_summary

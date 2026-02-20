@@ -54,6 +54,16 @@ class TrainConfig(BaseModel):
     walkforward_runs: int = Field(ge=2, le=10, default=3)
 
 
+class ExplorationAxesConfig(BaseModel):
+    lambda_turnover: list[float] = Field(default_factory=lambda: [0.001, 0.003, 0.005])
+    min_delta: list[float] = Field(default_factory=lambda: [0.01, 0.03, 0.05])
+    max_step_change: list[float] = Field(default_factory=lambda: [0.25, 0.15, 0.10])
+
+
+class ExplorationConfig(BaseModel):
+    axes: ExplorationAxesConfig = Field(default_factory=ExplorationAxesConfig)
+
+
 class AppConfig(BaseModel):
     mode: Literal["demo", "live", "backtest"] = "demo"
     exchange: Literal["binance"] = "binance"
@@ -68,3 +78,4 @@ class AppConfig(BaseModel):
     features: FeaturesConfig = Field(default_factory=FeaturesConfig)
     split: SplitConfig
     train: TrainConfig = Field(default_factory=TrainConfig)
+    exploration: ExplorationConfig = Field(default_factory=ExplorationConfig)
