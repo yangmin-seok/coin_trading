@@ -43,3 +43,9 @@ train:
   early_stop: 3
   checkpoint_interval: 512
   resume_from: null
+
+exploration:
+  axes:
+    lambda_turnover: [0.001, 0.003, 0.005]
+    min_delta: [0.01, 0.03, 0.05]
+    max_step_change: [0.25, 0.15, 0.10]
