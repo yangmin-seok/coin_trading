@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import ensure_training_candles, run, summarize_dataset_for_training
+from src.coin_trading.pipelines.train import (
+    _build_walkforward_splits,
+    _enforce_split_policy,
+    _validate_no_lookahead,
+    ensure_training_candles,
+    run,
+    summarize_dataset_for_training,
+)
 
 
 def test_summarize_dataset_for_training(sample_candles):
@@ -39,14 +46,16 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
 
     if train_manifest["status"] == "ready":
         assert model_train["enabled"] is True
-        assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
-        assert (run_dir / "learning_curve.csv").exists()
-        assert (run_dir / "learning_curve.json").exists()
-        assert (run_dir / "learning_curve.svg").exists()
-        assert (run_dir / "evaluation_metrics.json").exists()
-        assert (run_dir / "best_model.zip").exists()
-        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert model_train["folds"] >= 2
+        assert len(model_train["walkforward"]) == model_train["folds"]
+        for fold in model_train["walkforward"]:
+            if fold.get("enabled"):
+                fold_dir = run_dir / fold["fold_name"]
+                assert (fold_dir / "learning_curve.csv").exists()
+                assert (fold_dir / "learning_curve.json").exists()
+                assert (fold_dir / "learning_curve.svg").exists()
+                assert (fold_dir / "evaluation_metrics.json").exists()
+                assert fold["lookahead_validation"]["passed"] is True
     else:
         assert model_train["enabled"] is False
         assert model_train["reason"] == "missing_dependencies"
@@ -54,3 +63,16 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
     assert '"bootstrap_persisted": ' in data_manifest
+
+
+def test_split_policy_and_walkforward_defaults(sample_candles):
+    cfg = load_config()
+    policy = _enforce_split_policy(cfg, sample_candles)
+    assert set(policy["split"].keys()) == {"train", "val", "test"}
+    splits = _build_walkforward_splits(cfg, sample_candles)
+    assert len(splits) >= 2
+
+
+def test_lookahead_validation_passes(sample_candles):
+    result = _validate_no_lookahead(sample_candles)
+    assert result["passed"] is True
