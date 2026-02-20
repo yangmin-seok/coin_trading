@@ -16,6 +16,7 @@ def rollout_model(
     features_df: pd.DataFrame,
     cfg: AppConfig,
     artifacts_dir: Path | None = None,
+    return_trace: bool = False,
 ) -> dict[str, Any]:
     eval_env = build_env(candles_df, features_df, cfg)
     obs, _ = eval_env.reset(seed=cfg.seed)
@@ -27,7 +28,10 @@ def rollout_model(
 
     trace = eval_env.env.recorder.to_dataframe()
     if trace.empty:
-        return {"steps": 0, "final_equity": 0.0, "sharpe": 0.0, "max_drawdown": 0.0, "turnover": 0.0, "win_rate": 0.0}
+        empty_metrics = {"steps": 0, "final_equity": 0.0, "sharpe": 0.0, "max_drawdown": 0.0, "turnover": 0.0, "win_rate": 0.0}
+        if return_trace:
+            empty_metrics["trace_df"] = trace
+        return empty_metrics
 
     reward = trace["reward"].astype(float)
     sharpe = 0.0
@@ -44,4 +48,6 @@ def rollout_model(
     if artifacts_dir is not None:
         files = eval_env.env.recorder.write_trace_artifacts(artifacts_dir)
         metrics["artifacts"] = {k: str(v) for k, v in files.items()}
+    if return_trace:
+        metrics["trace_df"] = trace
     return metrics

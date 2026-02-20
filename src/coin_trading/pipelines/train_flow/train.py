@@ -63,7 +63,7 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
 
 def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame, cfg: AppConfig, run_dir: Path) -> dict[str, Any]:
     if train_df.empty or val_df.empty:
-        return {"enabled": False, "reason": "insufficient_split_rows"}
+        return {"enabled": False, "reason": "insufficient_split_rows", "trace_frames": {"train": pd.DataFrame(), "valid": pd.DataFrame(), "test": pd.DataFrame()}}
 
     reports_dir = run_dir / "reports"
     artifacts_dir = run_dir / "artifacts"
@@ -127,8 +127,19 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = rollout_model(best_model, val_df, val_features, cfg, reports_dir / "val_trace")
-    test_metrics = rollout_model(best_model, test_df, test_features, cfg, reports_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    train_final = rollout_model(best_model, train_df, train_features, cfg, reports_dir / "train_trace", return_trace=True)
+    val_final = rollout_model(best_model, val_df, val_features, cfg, reports_dir / "val_trace", return_trace=True)
+    test_metrics = (
+        rollout_model(best_model, test_df, test_features, cfg, reports_dir / "test_trace", return_trace=True)
+        if not test_df.empty
+        else {"enabled": False, "trace_df": pd.DataFrame()}
+    )
+
+    trace_frames = {
+        "train": train_final.pop("trace_df", pd.DataFrame()),
+        "valid": val_final.pop("trace_df", pd.DataFrame()),
+        "test": test_metrics.pop("trace_df", pd.DataFrame()),
+    }
 
     write_learning_curve_artifacts(history, reports_dir, plots_dir)
 
@@ -140,6 +151,7 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
+        "train_metrics": train_final,
         "val_metrics": val_final,
         "test_metrics": test_metrics,
         "artifacts": {
@@ -147,13 +159,15 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
             "learning_curve_json": "reports/learning_curve.json",
             "learning_curve_svg": "plots/learning_curve.svg",
             "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
+            "train_trace_dir": "reports/train_trace",
             "val_trace_dir": "reports/val_trace",
             "test_trace_dir": "reports/test_trace",
             "evaluation_metrics": "artifacts/metrics.json",
         },
+        "trace_frames": trace_frames,
     }
     (artifacts_dir / "metrics.json").write_text(
-        json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
+        json.dumps({"history": history, "train": train_final, "val": val_final, "test": test_metrics}, indent=2),
         encoding="utf-8",
     )
     return summary
