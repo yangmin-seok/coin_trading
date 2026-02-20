@@ -57,7 +57,7 @@ def run() -> str:
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(artifacts_dir)
+    write_meta(run_dir)
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
@@ -132,12 +132,15 @@ def run() -> str:
     else:
         wf_results.append({"fold": 1, "summary": {"enabled": False, "reason": "no_data"}})
 
+    primary_summary = wf_results[0]["summary"] if wf_results else {}
     train_summary = {
         "enabled": status == "ready",
         "walkforward_runs": len(wf_results),
         "walkforward_requested": cfg.train.walkforward_runs,
         "results": wf_results,
-        "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
+        "model": primary_summary.get("model", "none"),
+        "reason": primary_summary.get("reason"),
+        "message": primary_summary.get("message"),
     }
     if status == "blocked_missing_dependencies" and wf_results:
         train_summary["reason"] = "missing_dependencies"
@@ -173,8 +176,8 @@ def run() -> str:
                 ]
             ),
             "artifact_paths": {
-                "manifest": "feature_manifest.json",
-                "train_manifest": "train_manifest.json",
+                "manifest": "artifacts/feature_manifest.json",
+                "train_manifest": "artifacts/train_manifest.json",
             },
         },
     )
