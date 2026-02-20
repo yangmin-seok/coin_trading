@@ -41,6 +41,7 @@ def test_train_entry_execution_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert (tmp_path / "runs" / fixed_run_id / "plots").exists()
     assert (tmp_path / "runs" / fixed_run_id / "reports").exists()
     assert (tmp_path / "runs" / fixed_run_id / "artifacts").exists()
+    assert (tmp_path / "runs" / fixed_run_id / "artifacts" / "config.yaml").exists()
 
 
 def test_train_manifest_created_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta, patched_train_sb3):
@@ -51,6 +52,9 @@ def test_train_manifest_created_smoke(tmp_path: Path, monkeypatch: pytest.Monkey
     assert (run_dir / "artifacts" / "train_manifest.json").exists()
     manifest = json.loads((run_dir / "artifacts" / "train_manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] in {"ready", "blocked_missing_dependencies", "blocked_no_training_data"}
+    assert manifest["artifacts"]["train_summary_report"] == "reports/model_train_summary.json"
+    assert manifest["artifacts"]["config"] == "artifacts/config.yaml"
+    assert manifest["artifacts"]["metadata"] == "artifacts/metadata.json"
 
 
 def test_dependency_block_path_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta):
