@@ -81,12 +81,15 @@ def run() -> str:
     else:
         wf_results.append({"fold": 1, "summary": {"enabled": False, "reason": "no_data"}})
 
+    primary_summary = wf_results[0]["summary"] if wf_results else {}
     train_summary = {
         "enabled": status == "ready",
         "walkforward_runs": len(wf_results),
         "walkforward_requested": cfg.train.walkforward_runs,
         "results": wf_results,
-        "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
+        "model": primary_summary.get("model", "none"),
+        "reason": primary_summary.get("reason"),
+        "message": primary_summary.get("message"),
     }
 
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
