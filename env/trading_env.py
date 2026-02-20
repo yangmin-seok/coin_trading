@@ -90,7 +90,7 @@ class TradingEnv:
         drawdown = 1.0 - (self.state.equity / max(self.state.peak_equity, 1e-12))
         position_abs = abs(result.effective_target_pos)
 
-        reward, pnl_component, cost_component, penalty_component = compute_reward_components(
+        reward, pnl_component, cost_component, penalty_component, penalty_breakdown = compute_reward_components(
             self.state.equity,
             equity_prev,
             turnover,
@@ -126,6 +126,10 @@ class TradingEnv:
             "reward_pnl": pnl_component,
             "reward_cost": cost_component,
             "reward_penalty": penalty_component,
+            "reward_penalty_drawdown": float(penalty_breakdown.get("drawdown", 0.0)),
+            "reward_penalty_inactivity": float(penalty_breakdown.get("inactivity", 0.0)),
+            "reward_penalty_under_utilization": float(penalty_breakdown.get("under_utilization", 0.0)),
+            "reward_penalty_downside": float(penalty_breakdown.get("downside", 0.0)),
             "peak_equity": self.state.peak_equity,
             "action_target_pos": result.target_pos,
             "action_effective_pos": result.effective_target_pos,

@@ -74,12 +74,21 @@ def _compute_model_selection_score(metrics: dict[str, Any], cfg: AppConfig) -> d
     baseline_buy_hold = float(baseline.get("buy_hold", 0.0) or 0.0)
 
     equity_alpha = (final_equity - baseline_buy_hold) / max(abs(baseline_buy_hold), 1.0)
-    turnover_cap = float(cfg.execution.max_step_change)
-    turnover_penalty = max(0.0, turnover - turnover_cap) * 10.0
-    inactivity_penalty = max(0.0, no_trade_ratio - 0.7) * 3.0
+    turnover_cap = float(cfg.reward.selection_turnover_target)
+    inactivity_target = float(cfg.reward.selection_inactivity_target)
+    turnover_penalty = max(0.0, turnover - turnover_cap)
+    inactivity_penalty = max(0.0, no_trade_ratio - inactivity_target)
+    drawdown_penalty = max(0.0, max_drawdown)
     cost_penalty = total_cost / max(final_equity, 1.0)
 
-    score = (1.5 * sharpe) + (1.0 * equity_alpha) - (1.2 * max_drawdown) - (0.8 * turnover_penalty) - (1.2 * cost_penalty) - (0.8 * inactivity_penalty)
+    score = (
+        (1.5 * sharpe)
+        + (1.0 * equity_alpha)
+        - (cfg.reward.selection_drawdown_penalty_weight * drawdown_penalty)
+        - (cfg.reward.selection_turnover_penalty_weight * turnover_penalty)
+        - (1.2 * cost_penalty)
+        - (cfg.reward.selection_inactivity_penalty_weight * inactivity_penalty)
+    )
 
     return {
         "score": float(score),
@@ -91,10 +100,78 @@ def _compute_model_selection_score(metrics: dict[str, Any], cfg: AppConfig) -> d
         "no_trade_ratio": no_trade_ratio,
         "equity_alpha": float(equity_alpha),
         "turnover_cap": turnover_cap,
+        "inactivity_target": inactivity_target,
         "turnover_penalty": float(turnover_penalty),
+        "drawdown_penalty": float(drawdown_penalty),
         "cost_penalty": float(cost_penalty),
         "inactivity_penalty": float(inactivity_penalty),
+        "weights": {
+            "drawdown": float(cfg.reward.selection_drawdown_penalty_weight),
+            "turnover": float(cfg.reward.selection_turnover_penalty_weight),
+            "inactivity": float(cfg.reward.selection_inactivity_penalty_weight),
+            "cost": 1.2,
+        },
     }
+
+
+def _score_with_weights(metrics: dict[str, Any], cfg: AppConfig, weights: dict[str, float]) -> dict[str, Any]:
+    mod_cfg = cfg.model_copy(deep=True)
+    mod_cfg.reward.selection_turnover_penalty_weight = float(weights["turnover"])
+    mod_cfg.reward.selection_inactivity_penalty_weight = float(weights["inactivity"])
+    mod_cfg.reward.selection_drawdown_penalty_weight = float(weights["drawdown"])
+    scored = _compute_model_selection_score(metrics, mod_cfg)
+    scored["weights"] = {
+        "turnover": float(weights["turnover"]),
+        "inactivity": float(weights["inactivity"]),
+        "drawdown": float(weights["drawdown"]),
+        "cost": 1.2,
+    }
+    return scored
+
+
+def _iter_penalty_weights(cfg: AppConfig) -> list[dict[str, float]]:
+    if not cfg.reward.penalty_sweep_enabled:
+        return [
+            {
+                "turnover": float(cfg.reward.selection_turnover_penalty_weight),
+                "inactivity": float(cfg.reward.selection_inactivity_penalty_weight),
+                "drawdown": float(cfg.reward.selection_drawdown_penalty_weight),
+            }
+        ]
+
+    if cfg.reward.penalty_sweep_mode == "grid":
+        combinations: list[dict[str, float]] = []
+        for turn in cfg.reward.turnover_penalty_grid:
+            for ina in cfg.reward.inactivity_penalty_grid:
+                for dd in cfg.reward.drawdown_penalty_grid:
+                    combinations.append({"turnover": float(turn), "inactivity": float(ina), "drawdown": float(dd)})
+        return combinations
+
+    rng = random.Random(cfg.train.seed if cfg.train.seed is not None else cfg.seed)
+    turn_vals = cfg.reward.turnover_penalty_grid
+    ina_vals = cfg.reward.inactivity_penalty_grid
+    dd_vals = cfg.reward.drawdown_penalty_grid
+    combinations = []
+    for _ in range(int(cfg.reward.penalty_sweep_trials)):
+        combinations.append(
+            {
+                "turnover": float(rng.choice(turn_vals)),
+                "inactivity": float(rng.choice(ina_vals)),
+                "drawdown": float(rng.choice(dd_vals)),
+            }
+        )
+    return combinations
+
+
+def _select_best_penalty_weight(metrics: dict[str, Any], cfg: AppConfig) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    candidates = []
+    best: dict[str, Any] | None = None
+    for weights in _iter_penalty_weights(cfg):
+        scored = _score_with_weights(metrics, cfg, weights)
+        candidates.append(scored)
+        if best is None or _is_better_model_candidate(scored, best):
+            best = scored
+    return (best if best is not None else _compute_model_selection_score(metrics, cfg), candidates)
 
 
 def _is_better_model_candidate(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -173,8 +250,10 @@ def _run_single_experiment(
         model.learn(total_timesteps=chunk, reset_num_timesteps=False)
         trained += chunk
         val_metrics = rollout_model(model, val_df, val_features, cfg)
-        candidate = _compute_model_selection_score(val_metrics, cfg)
+        candidate, sweep_candidates = _select_best_penalty_weight(val_metrics, cfg)
         candidate_record = {"timesteps": trained, "val": val_metrics, "selection": candidate}
+        if cfg.reward.penalty_sweep_enabled:
+            candidate_record["selection_sweep"] = sweep_candidates
         history.append(candidate_record)
 
         if _is_better_model_candidate(candidate, best_candidate):
@@ -293,11 +372,11 @@ def _aggregate_reward_runs(experiments: list[dict[str, Any]]) -> list[dict[str, 
 def _is_better_candidate(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
     if current is None:
         return True
-    c = candidate.get("test_metrics", {})
-    k = current.get("test_metrics", {})
+    c = candidate.get("val_metrics", {})
+    k = current.get("val_metrics", {})
 
-    c_score = (1.2 * float(c.get("sharpe", 0.0) or 0.0)) + (0.001 * float(c.get("final_equity", 0.0) or 0.0)) - (1.0 * float(c.get("max_drawdown", 0.0) or 0.0)) - (0.5 * float(c.get("cost_pnl_ratio", 0.0) or 0.0))
-    k_score = (1.2 * float(k.get("sharpe", 0.0) or 0.0)) + (0.001 * float(k.get("final_equity", 0.0) or 0.0)) - (1.0 * float(k.get("max_drawdown", 0.0) or 0.0)) - (0.5 * float(k.get("cost_pnl_ratio", 0.0) or 0.0))
+    c_score = (1.2 * float(c.get("sharpe", 0.0) or 0.0)) + (0.001 * float(c.get("final_equity", 0.0) or 0.0)) - (1.0 * float(c.get("max_drawdown", 0.0) or 0.0)) - (0.5 * float(c.get("cost_pnl_ratio", 0.0) or 0.0)) - (0.3 * float(c.get("turnover", 0.0) or 0.0))
+    k_score = (1.2 * float(k.get("sharpe", 0.0) or 0.0)) + (0.001 * float(k.get("final_equity", 0.0) or 0.0)) - (1.0 * float(k.get("max_drawdown", 0.0) or 0.0)) - (0.5 * float(k.get("cost_pnl_ratio", 0.0) or 0.0)) - (0.3 * float(k.get("turnover", 0.0) or 0.0))
     if c_score > k_score + EPSILON:
         return True
     if abs(c_score - k_score) <= EPSILON:
@@ -349,7 +428,7 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         "repeat": selected["repeat"],
         "seed": selected["seed"],
         "run_dir": selected["run_dir"],
-        "criteria": "multi-objective adoption rule: return + risk-adjusted + cost + consistency",
+        "criteria": "multi-objective adoption rule on validation: return + risk-adjusted + cost + turnover + consistency",
     }
     selected_summary["comparison_protocol"] = {
         "scope": [
@@ -372,16 +451,16 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
             "repeat": item["repeat"],
             "seed": item["seed"],
             "run_dir": item["run_dir"],
-            "test_final_equity": item["summary"].get("test_metrics", {}).get("final_equity", 0.0),
-            "test_sharpe": item["summary"].get("test_metrics", {}).get("sharpe", 0.0),
-            "test_turnover": item["summary"].get("test_metrics", {}).get("turnover", 0.0),
-            "test_total_cost": item["summary"].get("test_metrics", {}).get("total_cost", 0.0),
-            "test_max_drawdown": item["summary"].get("test_metrics", {}).get("max_drawdown", 0.0),
-            "test_trade_count": item["summary"].get("test_metrics", {}).get("trade_count", 0.0),
-            "test_no_trade_ratio": item["summary"].get("test_metrics", {}).get("no_trade_ratio", 0.0),
-            "test_avg_abs_position": item["summary"].get("test_metrics", {}).get("avg_abs_position", 0.0),
-            "test_excess_vs_cash": item["summary"].get("test_metrics", {}).get("excess_vs_baseline", {}).get("cash_hold", 0.0),
-            "test_excess_vs_buy_hold": item["summary"].get("test_metrics", {}).get("excess_vs_baseline", {}).get("buy_hold", 0.0),
+            "val_final_equity": item["summary"].get("val_metrics", {}).get("final_equity", 0.0),
+            "val_sharpe": item["summary"].get("val_metrics", {}).get("sharpe", 0.0),
+            "val_turnover": item["summary"].get("val_metrics", {}).get("turnover", 0.0),
+            "val_total_cost": item["summary"].get("val_metrics", {}).get("total_cost", 0.0),
+            "val_max_drawdown": item["summary"].get("val_metrics", {}).get("max_drawdown", 0.0),
+            "val_trade_count": item["summary"].get("val_metrics", {}).get("trade_count", 0.0),
+            "val_no_trade_ratio": item["summary"].get("val_metrics", {}).get("no_trade_ratio", 0.0),
+            "val_avg_abs_position": item["summary"].get("val_metrics", {}).get("avg_abs_position", 0.0),
+            "val_excess_vs_cash": item["summary"].get("val_metrics", {}).get("excess_vs_baseline", {}).get("cash_hold", 0.0),
+            "val_excess_vs_buy_hold": item["summary"].get("val_metrics", {}).get("excess_vs_baseline", {}).get("buy_hold", 0.0),
         }
         for item in experiment_results
     ]

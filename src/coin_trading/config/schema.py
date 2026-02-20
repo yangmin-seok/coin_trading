@@ -22,6 +22,17 @@ class RewardConfig(BaseModel):
     dsr_scale: float = Field(gt=0.0, default=1.0)
     downside_beta: float = Field(gt=0.0, le=1.0, default=0.05)
     lambda_downside: float = Field(ge=0.0, default=0.5)
+    selection_turnover_penalty_weight: float = Field(ge=0.0, default=1.0)
+    selection_inactivity_penalty_weight: float = Field(ge=0.0, default=1.0)
+    selection_drawdown_penalty_weight: float = Field(ge=0.0, default=1.0)
+    selection_turnover_target: float = Field(ge=0.0, default=0.25)
+    selection_inactivity_target: float = Field(ge=0.0, le=1.0, default=0.7)
+    penalty_sweep_enabled: bool = False
+    penalty_sweep_mode: Literal["grid", "random"] = "grid"
+    penalty_sweep_trials: int = Field(ge=1, le=200, default=12)
+    turnover_penalty_grid: list[float] = Field(default_factory=lambda: [0.5, 1.0, 1.5])
+    inactivity_penalty_grid: list[float] = Field(default_factory=lambda: [0.5, 1.0, 1.5])
+    drawdown_penalty_grid: list[float] = Field(default_factory=lambda: [0.5, 1.0, 1.5])
 
 
 class ExecutionConfig(BaseModel):

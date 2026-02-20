@@ -25,6 +25,32 @@ def _cost_report(trace: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def _reward_component_contributions(trace: pd.DataFrame) -> dict[str, float]:
+    def _sum(col: str) -> float:
+        return float(trace[col].astype(float).sum()) if col in trace else 0.0
+
+    pnl = _sum("reward_pnl")
+    turnover_cost = _sum("reward_cost")
+    penalty_total = _sum("reward_penalty")
+    penalty_drawdown = _sum("reward_penalty_drawdown")
+    penalty_inactivity = _sum("reward_penalty_inactivity")
+    penalty_under_util = _sum("reward_penalty_under_utilization")
+    penalty_downside = _sum("reward_penalty_downside")
+    reward_total = _sum("reward")
+
+    return {
+        "reward_total": reward_total,
+        "pnl_total": pnl,
+        "turnover_cost_total": turnover_cost,
+        "penalty_total": penalty_total,
+        "penalty_drawdown_total": penalty_drawdown,
+        "penalty_inactivity_total": penalty_inactivity,
+        "penalty_under_utilization_total": penalty_under_util,
+        "penalty_downside_total": penalty_downside,
+        "reconstruction_error": reward_total - (pnl - turnover_cost - penalty_total),
+    }
+
+
 def _baseline_equities(candles_df: pd.DataFrame, initial_equity: float) -> dict[str, float]:
     if candles_df.empty or "open" not in candles_df:
         return {"cash_hold": initial_equity, "buy_hold": initial_equity}
@@ -69,6 +95,17 @@ def rollout_model(
             "baseline_equity": {"cash_hold": 0.0, "buy_hold": 0.0},
             "excess_vs_baseline": {"cash_hold": 0.0, "buy_hold": 0.0},
             "cost_report": empty_cost,
+            "reward_contributions": {
+                "reward_total": 0.0,
+                "pnl_total": 0.0,
+                "turnover_cost_total": 0.0,
+                "penalty_total": 0.0,
+                "penalty_drawdown_total": 0.0,
+                "penalty_inactivity_total": 0.0,
+                "penalty_under_utilization_total": 0.0,
+                "penalty_downside_total": 0.0,
+                "reconstruction_error": 0.0,
+            },
         }
 
     reward = trace["reward"].astype(float)
@@ -107,6 +144,7 @@ def rollout_model(
         "baseline_equity": baseline_equity,
         "excess_vs_baseline": excess_vs_baseline,
         "cost_report": cost_report,
+        "reward_contributions": _reward_component_contributions(trace),
     }
     if artifacts_dir is not None:
         files = eval_env.env.recorder.write_trace_artifacts(artifacts_dir)
