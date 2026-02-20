@@ -12,6 +12,13 @@ from src.coin_trading.config.schema import AppConfig
 from src.coin_trading.pipelines.train_flow.env import build_env
 from src.coin_trading.pipelines.train_flow.evaluate import rollout_model
 from src.coin_trading.pipelines.train_flow.features import compute_features
+from src.coin_trading.pipelines.reporting import (
+    create_benchmark_comparison,
+    create_common_risk_plots,
+    create_split_equity_curves,
+    detect_overfit,
+    write_trade_stats_report,
+)
 from src.coin_trading.report.plotting import write_learning_curve_artifacts
 
 
@@ -105,8 +112,26 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     best_model_path = run_dir / "best_model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    test_metrics = rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    trace_root = run_dir / "reports" / "traces"
+    train_final = rollout_model(best_model, train_df, train_features, cfg, trace_root / "train", include_trace=True)
+    val_final = rollout_model(best_model, val_df, val_features, cfg, trace_root / "valid", include_trace=True)
+    test_metrics = (
+        rollout_model(best_model, test_df, test_features, cfg, trace_root / "test", include_trace=True)
+        if not test_df.empty
+        else {"enabled": False, "trace": pd.DataFrame()}
+    )
+
+    traces = {
+        "train": train_final.pop("trace", pd.DataFrame()),
+        "valid": val_final.pop("trace", pd.DataFrame()),
+        "test": test_metrics.pop("trace", pd.DataFrame()),
+    }
+
+    overfit_warning = detect_overfit(train_final, test_metrics) if test_metrics.get("enabled", True) else False
+    equity_curves = create_split_equity_curves(run_dir, traces)
+    risk_plots = create_common_risk_plots(run_dir, traces)
+    benchmark_plot = create_benchmark_comparison(run_dir, test_df if not test_df.empty else val_df, cfg.seed)
+    trade_stats_report = write_trade_stats_report(run_dir, traces.get("test") if not traces.get("test", pd.DataFrame()).empty else traces.get("valid", pd.DataFrame()), overfit_warning)
 
     write_learning_curve_artifacts(history, run_dir)
 
@@ -118,19 +143,24 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         "best_model": "best_model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
+        "train_metrics": train_final,
         "val_metrics": val_final,
         "test_metrics": test_metrics,
+        "overfit_warning": overfit_warning,
         "artifacts": {
             "learning_curve_csv": "learning_curve.csv",
             "learning_curve_json": "learning_curve.json",
             "learning_curve_svg": "learning_curve.svg",
             "best_model": "best_model.zip" if best_model_path.exists() else None,
-            "val_trace_dir": "val_trace",
-            "test_trace_dir": "test_trace",
+            "trace_dirs": {"train": "reports/traces/train", "valid": "reports/traces/valid", "test": "reports/traces/test"},
+            "split_equity_curves": equity_curves,
+            **risk_plots,
+            "benchmark_comparison_png": benchmark_plot,
+            "trade_stats_report_html": trade_stats_report,
         },
     }
     (run_dir / "evaluation_metrics.json").write_text(
-        json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
+        json.dumps({"history": history, "train": train_final, "val": val_final, "test": test_metrics, "overfit_warning": overfit_warning}, indent=2),
         encoding="utf-8",
     )
     return summary

@@ -29,10 +29,11 @@ def _safe_plot_png(path: Path, plotter) -> None:
 
 
 def create_split_equity_curves(run_dir: Path, traces: dict[str, pd.DataFrame]) -> list[str]:
+    out_dir = run_dir / "plots"
     generated: list[str] = []
     for split in ("train", "valid", "test"):
         trace = traces.get(split, pd.DataFrame())
-        out_path = run_dir / f"equity_curve_{split}.png"
+        out_path = out_dir / f"equity_curve_{split}.png"
 
         def _plot(ax):
             ax.set_title(f"Equity Curve ({split})")
@@ -61,7 +62,8 @@ def create_common_risk_plots(run_dir: Path, traces: dict[str, pd.DataFrame]) -> 
         combined.append(tmp)
     combo = pd.concat(combined, ignore_index=True) if combined else pd.DataFrame()
 
-    drawdown_path = run_dir / "drawdown_curve.png"
+    out_dir = run_dir / "plots"
+    drawdown_path = out_dir / "drawdown_curve.png"
 
     def _drawdown(ax):
         ax.set_title("Drawdown Curve")
@@ -79,7 +81,7 @@ def create_common_risk_plots(run_dir: Path, traces: dict[str, pd.DataFrame]) -> 
 
     _safe_plot_png(drawdown_path, _drawdown)
 
-    heatmap_path = run_dir / "monthly_returns_heatmap.png"
+    heatmap_path = out_dir / "monthly_returns_heatmap.png"
 
     def _heatmap(ax):
         ax.set_title("Monthly Returns Heatmap")
@@ -185,7 +187,9 @@ def write_trade_stats_report(run_dir: Path, trace: pd.DataFrame, overfit_warning
 
 
 def create_benchmark_comparison(run_dir: Path, candles_df: pd.DataFrame, seed: int) -> str:
-    out_path = run_dir / "benchmark_comparison.png"
+    out_dir = run_dir / "plots"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "benchmark_comparison.png"
     if candles_df.empty or "close" not in candles_df:
         out_path.write_bytes(_MINIMAL_PNG)
         return str(out_path.relative_to(run_dir))
