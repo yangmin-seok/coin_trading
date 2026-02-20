@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import inspect
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
@@ -69,6 +69,28 @@ def run() -> str:
     walkforward_plan = plan_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs, min_folds=3)
     wf_splits = walkforward_plan["splits"]
 
+    walkforward_shortfall = None
+    if dataset_summary["rows"] > 0 and len(wf_splits) < cfg.train.walkforward_runs:
+        val_start = datetime.fromisoformat(cfg.split.val[0]).replace(tzinfo=timezone.utc)
+        val_end = datetime.fromisoformat(cfg.split.val[1]).replace(tzinfo=timezone.utc)
+        test_end = datetime.fromisoformat(cfg.split.test[1]).replace(tzinfo=timezone.utc)
+        step_days = max(1, (val_end - val_start).days + 1)
+        next_fold_test_end = test_end + timedelta(days=step_days * len(wf_splits))
+        data_end = datetime.fromtimestamp(int(candles_df["open_time"].max()) / 1000, tz=timezone.utc).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        walkforward_shortfall = {
+            "reason": "insufficient_data_coverage_for_requested_walkforward",
+            "requested": cfg.train.walkforward_runs,
+            "actual": len(wf_splits),
+            "data_end": data_end.strftime("%Y-%m-%d"),
+            "next_fold_required_test_end": next_fold_test_end.strftime("%Y-%m-%d"),
+            "suggestion": "collect more data or reduce val/test ranges to increase walkforward folds",
+        }
+
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
     wf_results = []
 
@@ -102,8 +124,7 @@ def run() -> str:
         "enabled": status == "ready",
         "walkforward_runs": len(wf_results),
         "walkforward_requested": cfg.train.walkforward_runs,
-        "walkforward_policy": walkforward_plan["policy"],
-        "fold_shortage_reason": walkforward_plan["policy"].get("insufficient_reason"),
+        "walkforward_shortfall": walkforward_shortfall,
         "results": wf_results,
         "model": primary_summary.get("model", "none"),
         "reason": primary_summary.get("reason"),

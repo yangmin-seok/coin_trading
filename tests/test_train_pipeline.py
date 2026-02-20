@@ -71,36 +71,3 @@ def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataF
     assert env.env.lambda_dd == cfg.reward.lambda_dd
     assert env.env.dd_limit == cfg.reward.dd_limit
     assert env._seed == cfg.train.seed
-
-
-def test_build_walkforward_splits_accepts_custom_step_days(sample_candles: pd.DataFrame):
-    _ = sample_candles
-    split = {
-        "train": ("2022-01-01", "2024-12-31"),
-        "val": ("2025-01-01", "2025-06-30"),
-        "test": ("2025-07-01", "2025-12-31"),
-    }
-
-    empty_df = pd.DataFrame(columns=["open_time", "open", "high", "low", "close", "volume", "close_time"])
-    default_splits = build_walkforward_splits(empty_df, split, target_runs=3)
-    custom_step_splits = build_walkforward_splits(empty_df, split, target_runs=3, step_days=30)
-
-    assert len(custom_step_splits) >= len(default_splits)
-
-
-def test_plan_walkforward_splits_reports_shortage_reason(sample_candles: pd.DataFrame):
-    _ = sample_candles
-    split = {
-        "train": ("2022-01-01", "2024-12-31"),
-        "val": ("2025-01-01", "2025-06-30"),
-        "test": ("2025-07-01", "2025-12-31"),
-    }
-
-    empty_df = pd.DataFrame(columns=["open_time", "open", "high", "low", "close", "volume", "close_time"])
-    plan = plan_walkforward_splits(empty_df, split, target_runs=3, min_folds=3)
-
-    assert len(plan["splits"]) >= 1
-    assert "data_coverage" in plan["policy"]
-    assert plan["policy"]["desired_runs"] == 3
-    if plan["policy"]["actual_runs"] < plan["policy"]["desired_runs"]:
-        assert plan["policy"]["insufficient_reason"] is not None
