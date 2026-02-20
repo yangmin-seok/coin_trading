@@ -1,0 +1,47 @@
+[
+  {
+    "timesteps": 2000,
+    "val_sharpe": -20.073914523763058,
+    "val_max_drawdown": 0.007562532441200309,
+    "val_final_equity": 9979.93985198986,
+    "loss": 0.0,
+    "entropy_loss": 0.0,
+    "value_loss": 0.0
+  },
+  {
+    "timesteps": 4000,
+    "val_sharpe": -35.204485896101914,
+    "val_max_drawdown": 0.028867058461068518,
+    "val_final_equity": 9711.329415389315,
+    "loss": 0.0,
+    "entropy_loss": 0.0,
+    "value_loss": 0.0
+  },
+  {
+    "timesteps": 6000,
+    "val_sharpe": -35.21479493099322,
+    "val_max_drawdown": 0.028889733896618752,
+    "val_final_equity": 9711.102661033812,
+    "loss": 0.0,
+    "entropy_loss": 0.0,
+    "value_loss": 0.0
+  },
+  {
+    "timesteps": 8000,
+    "val_sharpe": -40.649011279811475,
+    "val_max_drawdown": 0.03237134455910917,
+    "val_final_equity": 9679.74796992727,
+    "loss": 0.0,
+    "entropy_loss": 0.0,
+    "value_loss": 0.0
+  },
+  {
+    "timesteps": 10000,
+    "val_sharpe": -49.21153060054599,
+    "val_max_drawdown": 0.03551685899774015,
+    "val_final_equity": 9648.281573360251,
+    "loss": 0.0,
+    "entropy_loss": 0.0,
+    "value_loss": 0.0
+  }
+]

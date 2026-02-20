@@ -1,0 +1,63 @@
+mode: demo
+exchange: binance
+market: spot
+symbol: BTCUSDT
+interval: 5m
+seed: 3
+timezone_storage: UTC
+report_timezone: Asia/Seoul
+reward:
+  type: log_return_regularized
+  comparison_types: [log_return_regularized, differential_sharpe, downside_risk]
+  comparison_repeats: 3
+  lambda_turnover: 0.001
+  lambda_dd: 0.1
+  dd_limit: 0.2
+  inactivity_threshold: 0.0001
+  inactivity_penalty: 0.0005
+  target_position_utilization: 0.15
+  lambda_under_utilization: 0.001
+  dsr_beta: 0.05
+  dsr_scale: 1.0
+  downside_beta: 0.05
+  lambda_downside: 0.5
+execution:
+  fee_rate: 0.001
+  slippage_bps: 2.0
+  max_step_change: 0.25
+  min_delta: 0.01
+  # action은 목표 익스포저 비율이며 허용 범위는 [-1.0, 1.0] (숏~롱)
+  # 관측의 position_ratio는 signed ratio를 유지하고 [-1.0, 1.0]으로 clip합니다.
+features:
+  version: v1
+  windows:
+    return: 20
+    rsi: 14
+    bb: 20
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+split:
+  train: ["2022-01-01", "2024-12-31"]
+  val: ["2025-01-01", "2025-06-30"]
+  test: ["2025-07-01", "2025-12-31"]
+
+train:
+  algo: ppo
+  total_timesteps: 1024
+  learning_rate: 0.0003
+  batch_size: 64
+  gamma: 0.99
+  n_steps: 128
+  seed: null
+  eval_interval: 256
+  walkforward_runs: 3
+  early_stop: 3
+  checkpoint_interval: 512
+  resume_from: null
+
+exploration:
+  axes:
+    lambda_turnover: [0.001, 0.003, 0.005]
+    min_delta: [0.01, 0.03, 0.05]
+    max_step_change: [0.25, 0.15, 0.10]
