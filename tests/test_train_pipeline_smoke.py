@@ -68,4 +68,26 @@ def test_dependency_block_path_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     assert manifest["status"] == "blocked_missing_dependencies"
     assert model_summary["enabled"] is False
-    assert model_summary["reason"] == "missing_dependencies"
+    assert model_summary["results"][0]["summary"]["reason"] == "missing_dependencies"
+
+
+def test_train_module_run_returns_run_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from src.coin_trading.pipelines import train
+    from src.coin_trading.pipelines.train_flow import orchestrator as train_orchestrator
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(train_orchestrator, "make_run_id", lambda *args, **kwargs: "entry_run_id")
+    monkeypatch.setattr(
+        train_orchestrator,
+        "write_meta",
+        lambda run_dir: (run_dir / "meta.json").write_text("{}", encoding="utf-8"),
+    )
+    monkeypatch.setattr(
+        train_orchestrator,
+        "train_sb3",
+        lambda *_args, **_kwargs: {"enabled": False, "reason": "insufficient_split_rows"},
+    )
+
+    run_id = train.run()
+
+    assert run_id == "entry_run_id"

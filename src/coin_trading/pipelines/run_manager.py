@@ -9,10 +9,21 @@ from pathlib import Path
 from typing import Any
 
 
-def make_run_id() -> str:
+RUN_ID_FORMAT = "<YYYYMMDD_HHMMSSZ>_<git_sha7>[__<option>]"
+RUN_ID_FORMAT_DETAILS = {
+    "timestamp": "UTC timestamp formatted as YYYYMMDD_HHMMSSZ",
+    "git_sha": "first 7 chars of current git SHA",
+    "option": "optional context field appended as __<option>",
+}
+
+
+def make_run_id(*, option: str | None = None) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     sha = git_sha()[:7]
-    return f"{ts}_{sha}"
+    if not option:
+        return f"{ts}_{sha}"
+    option_normalized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in option)
+    return f"{ts}_{sha}__{option_normalized}"
 
 
 def git_sha() -> str:
