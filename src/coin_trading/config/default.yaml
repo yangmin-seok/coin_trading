@@ -7,10 +7,20 @@ seed: 3
 timezone_storage: UTC
 report_timezone: Asia/Seoul
 reward:
-  type: log_return
+  type: log_return_regularized
+  comparison_types: [log_return_regularized, differential_sharpe, downside_risk]
+  comparison_repeats: 3
   lambda_turnover: 0.001
   lambda_dd: 0.1
   dd_limit: 0.2
+  inactivity_threshold: 0.0001
+  inactivity_penalty: 0.0005
+  target_position_utilization: 0.15
+  lambda_under_utilization: 0.001
+  dsr_beta: 0.05
+  dsr_scale: 1.0
+  downside_beta: 0.05
+  lambda_downside: 0.5
 execution:
   fee_rate: 0.001
   slippage_bps: 2.0

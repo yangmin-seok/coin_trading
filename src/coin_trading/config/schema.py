@@ -6,10 +6,22 @@ from pydantic import BaseModel, Field
 
 
 class RewardConfig(BaseModel):
-    type: Literal["log_return"] = "log_return"
+    type: Literal["log_return_regularized", "differential_sharpe", "downside_risk"] = "log_return_regularized"
+    comparison_types: list[Literal["log_return_regularized", "differential_sharpe", "downside_risk"]] = Field(
+        default_factory=lambda: ["log_return_regularized", "differential_sharpe", "downside_risk"]
+    )
+    comparison_repeats: int = Field(ge=1, le=10, default=3)
     lambda_turnover: float = Field(ge=0.0, default=0.001)
     lambda_dd: float = Field(ge=0.0, default=0.1)
     dd_limit: float = Field(ge=0.0, le=1.0, default=0.2)
+    inactivity_threshold: float = Field(ge=0.0, le=1.0, default=1e-4)
+    inactivity_penalty: float = Field(ge=0.0, default=0.0005)
+    target_position_utilization: float = Field(ge=0.0, le=1.0, default=0.15)
+    lambda_under_utilization: float = Field(ge=0.0, default=0.001)
+    dsr_beta: float = Field(gt=0.0, le=1.0, default=0.05)
+    dsr_scale: float = Field(gt=0.0, default=1.0)
+    downside_beta: float = Field(gt=0.0, le=1.0, default=0.05)
+    lambda_downside: float = Field(ge=0.0, default=0.5)
 
 
 class ExecutionConfig(BaseModel):
