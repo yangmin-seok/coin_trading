@@ -6,6 +6,8 @@ import pandas as pd
 
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, split_by_date, summarize_dataset
+from src.coin_trading.pipelines.train_flow.env import build_env
+from src.coin_trading.pipelines.train_flow.features import compute_features
 
 
 def test_summarize_dataset(sample_candles: pd.DataFrame):
@@ -39,3 +41,24 @@ def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     assert bootstrapped is True
     assert len(candles) > 0
     assert persisted in {True, False}
+
+
+def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataFrame):
+    cfg = load_config()
+    cfg.execution.fee_rate = 0.0025
+    cfg.execution.slippage_bps = 4.0
+    cfg.execution.max_step_change = 0.15
+    cfg.execution.min_delta = 0.03
+    cfg.reward.lambda_turnover = 0.005
+    cfg.reward.lambda_dd = 0.25
+    cfg.reward.dd_limit = 0.12
+
+    env = build_env(sample_candles, compute_features(sample_candles), cfg)
+
+    assert env.env.execution_model.fee_rate == cfg.execution.fee_rate
+    assert env.env.execution_model.slippage_bps == cfg.execution.slippage_bps
+    assert env.env.execution_model.max_step_change == cfg.execution.max_step_change
+    assert env.env.execution_model.min_delta == cfg.execution.min_delta
+    assert env.env.lambda_turnover == cfg.reward.lambda_turnover
+    assert env.env.lambda_dd == cfg.reward.lambda_dd
+    assert env.env.dd_limit == cfg.reward.dd_limit
