@@ -8,6 +8,9 @@
   "final_equity": 10035.741845342985,
   "artifacts": {
     "trace_csv": "train_probe/trace.csv",
-    "reward_equity_svg": "train_probe/reward_equity.svg"
+    "reward_equity_svg": "train_probe/reward_equity.svg",
+    "drawdown_turnover_svg": "train_probe/drawdown_turnover.svg",
+    "action_position_svg": "train_probe/action_position.svg",
+    "costs_svg": "train_probe/costs.svg"
   }
 }
