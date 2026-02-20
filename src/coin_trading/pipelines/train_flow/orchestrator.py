@@ -16,8 +16,8 @@ from src.coin_trading.pipelines.run_manager import (
     write_train_manifest,
 )
 from src.coin_trading.pipelines.train_flow.data import (
-    build_walkforward_splits,
     ensure_training_candles,
+    plan_walkforward_splits,
     split_by_date,
     summarize_dataset,
     validate_split_policy,
@@ -66,7 +66,8 @@ def run() -> str:
 
     base_split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
     split_policy = validate_split_policy(base_split, candles_df)
-    wf_splits = build_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs)
+    walkforward_plan = plan_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs, min_folds=3)
+    wf_splits = walkforward_plan["splits"]
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
     wf_results = []
@@ -101,6 +102,8 @@ def run() -> str:
         "enabled": status == "ready",
         "walkforward_runs": len(wf_results),
         "walkforward_requested": cfg.train.walkforward_runs,
+        "walkforward_policy": walkforward_plan["policy"],
+        "fold_shortage_reason": walkforward_plan["policy"].get("insufficient_reason"),
         "results": wf_results,
         "model": primary_summary.get("model", "none"),
         "reason": primary_summary.get("reason"),
