@@ -41,15 +41,15 @@ class SplitConfig(BaseModel):
 
 class TrainConfig(BaseModel):
     algo: Literal["ppo", "sac"] = "ppo"
-    total_timesteps: int = Field(ge=256, default=1024)
+    total_timesteps: int = Field(ge=256, default=20_000)
     learning_rate: float = Field(gt=0.0, default=3e-4)
     batch_size: int = Field(gt=0, default=64)
     gamma: float = Field(gt=0.0, le=1.0, default=0.99)
     n_steps: int = Field(gt=0, default=128)
     seed: int | None = Field(default=None)
-    eval_interval: int = Field(gt=0, default=256)
-    early_stop: int = Field(ge=0, default=3)
-    checkpoint_interval: int = Field(gt=0, default=512)
+    eval_interval: int = Field(gt=0, default=2_000)
+    early_stop: int = Field(ge=0, default=8)
+    checkpoint_interval: int = Field(gt=0, default=5_000)
     resume_from: str | None = None
     walkforward_runs: int = Field(ge=2, le=10, default=3)
 
