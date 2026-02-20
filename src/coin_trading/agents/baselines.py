@@ -62,3 +62,15 @@ class VolTarget(BaselinePolicy):
         if vol <= 0:
             return 0.0
         return float(np.clip(self.target_vol / vol, 0.0, 1.0))
+
+
+class RandomPolicy(BaselinePolicy):
+    def __init__(self, seed: int = 0) -> None:
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
+
+    def reset(self) -> None:
+        self.rng = np.random.default_rng(self.seed)
+
+    def act(self, obs, info) -> float:
+        return float(self.rng.uniform(0.0, 1.0))
