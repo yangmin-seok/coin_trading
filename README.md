@@ -42,7 +42,7 @@ python -m pip install -e '.[dev]'
 ### 2-3. 최소 실행 (경로 반영 버전)
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
+cd src/coin_trading
 PYTHONPATH=../.. python -m pipelines.train
 ```
 
