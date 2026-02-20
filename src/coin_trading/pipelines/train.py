@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import random
 from pathlib import Path
 from typing import Any
 
+import binascii
+import struct
+import zlib
+
 import numpy as np
 import pandas as pd
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover
+    plt = None
 
 from src.coin_trading.agents.sb3_env import GymTradingEnv
 from src.coin_trading.config.loader import load_config
@@ -15,16 +25,20 @@ from src.coin_trading.config.schema import AppConfig
 from src.coin_trading.features.definitions import FEATURE_COLUMNS
 from src.coin_trading.features.offline import compute_offline
 from src.coin_trading.pipelines.run_manager import (
+    git_sha,
     implementation_hash,
     make_run_id,
     write_data_manifest,
     write_feature_manifest,
-    write_meta,
     write_train_manifest,
 )
 from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
 from env.trading_env import TradingEnv
+
+
+PRICE_COLUMNS = ["open", "high", "low", "close"]
+MAX_ALLOWED_FEATURE_MISSING_RATIO = 0.05
 
 
 def _train_data_glob(cfg: AppConfig) -> str:
@@ -41,6 +55,16 @@ def load_training_candles(cfg: AppConfig, data_root: Path = Path("data/processed
     candles = pd.read_parquet(files)
     candles = candles.sort_values("open_time").drop_duplicates(subset=["open_time"], keep="last").reset_index(drop=True)
     return candles
+
+
+def preprocess_training_candles(candles_df: pd.DataFrame, price_fill_method: str | None = None) -> pd.DataFrame:
+    if price_fill_method in {"ffill", "pad", "forward_fill"}:
+        raise ValueError("Forward fill for price columns is forbidden. Use raw market data without price forward fill.")
+
+    clean = candles_df.copy()
+    if clean[PRICE_COLUMNS].isna().any(axis=None):
+        raise ValueError("NaN detected in price columns. Forward filling price series is forbidden by preprocessing policy.")
+    return clean
 
 
 def _interval_to_ms(interval: str) -> int:
@@ -307,12 +331,33 @@ def _compute_warning_flags(features_info: dict[str, Any], reward_metrics: dict[s
 def _seed_everything(seed: int) -> None:
     np.random.seed(seed)
     random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
     try:
         import torch
 
         torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
     except ImportError:
         pass
+
+
+def _write_metadata(
+    artifacts_dir: Path,
+    *,
+    seed: int,
+    start_time_utc: str,
+    git_sha_value: str,
+    data_range: dict[str, list[str]],
+) -> None:
+    metadata = {
+        "seed": seed,
+        "git_sha": git_sha_value,
+        "start_time_utc": start_time_utc,
+        "data_range": data_range,
+    }
+    (artifacts_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
 def _build_sb3_algo(algo_name: str, env: GymTradingEnv, cfg: AppConfig):
@@ -430,12 +475,169 @@ def _render_learning_curve_svg(history: list[dict[str, Any]], out_path: Path) ->
     out_path.write_text(svg, encoding="utf-8")
 
 
+def _safe_series(values: list[float]) -> pd.Series:
+    return pd.Series(values, dtype="float64") if values else pd.Series(dtype="float64")
+
+
+def _render_training_artifacts(
+    run_dir: Path,
+    train_progress: list[dict[str, float]],
+    step_trace: list[dict[str, float]],
+) -> dict[str, str]:
+    artifacts: dict[str, str] = {}
+    if plt is None:
+        return artifacts
+
+    progress_df = pd.DataFrame(train_progress)
+    trace_df = pd.DataFrame(step_trace)
+
+    if not progress_df.empty:
+        fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+        axes[0].plot(progress_df["timesteps"], progress_df["episode_reward"], color="#1f77b4")
+        axes[0].set_ylabel("episode reward")
+        axes[0].grid(alpha=0.2)
+
+        axes[1].plot(progress_df["timesteps"], progress_df["avg_return"], color="#2ca02c")
+        axes[1].set_ylabel("avg return")
+        axes[1].grid(alpha=0.2)
+
+        axes[2].plot(progress_df["timesteps"], progress_df["explained_variance"], color="#d62728")
+        axes[2].set_ylabel("explained variance")
+        axes[2].set_xlabel("timesteps")
+        axes[2].grid(alpha=0.2)
+
+        fig.tight_layout()
+        train_curve_path = run_dir / "train_curve.png"
+        fig.savefig(train_curve_path, dpi=120)
+        plt.close(fig)
+        artifacts["train_curve_png"] = train_curve_path.name
+
+        fig, axes = plt.subplots(5, 1, figsize=(10, 12), sharex=True)
+        components = ["policy_loss", "value_loss", "entropy_loss", "approx_kl", "clip_fraction"]
+        colors = ["#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#d62728"]
+        for ax, key, color in zip(axes, components, colors):
+            ax.plot(progress_df["timesteps"], progress_df[key], color=color)
+            ax.set_ylabel(key)
+            ax.grid(alpha=0.2)
+        axes[-1].set_xlabel("timesteps")
+        fig.tight_layout()
+        loss_components_path = run_dir / "loss_components.png"
+        fig.savefig(loss_components_path, dpi=120)
+        plt.close(fig)
+        artifacts["loss_components_png"] = loss_components_path.name
+
+    if not trace_df.empty and "action" in trace_df:
+        action_values = trace_df["action"].astype(float)
+        effective_pos = trace_df.get("effective_position", pd.Series([0.0] * len(trace_df))).astype(float)
+        leverage = trace_df.get("leverage", pd.Series([0.0] * len(trace_df))).astype(float)
+        switch_series = np.sign(effective_pos).diff().fillna(0.0).ne(0.0)
+        switch_frequency = float(switch_series.mean()) if len(switch_series) > 0 else 0.0
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        axes[0].hist(action_values, bins=20, color="#1f77b4", alpha=0.85)
+        axes[0].set_title("Action histogram")
+        axes[0].set_xlabel("action")
+        axes[0].set_ylabel("count")
+
+        sign_counts = pd.Series(np.sign(effective_pos)).value_counts().reindex([-1.0, 0.0, 1.0], fill_value=0)
+        axes[1].bar(["short", "flat", "long"], sign_counts.values, color="#ff7f0e", alpha=0.85)
+        axes[1].set_title(f"Position sign counts\nswitch freq={switch_frequency:.3f}")
+        axes[1].set_ylabel("count")
+        fig.tight_layout()
+        action_dist_path = run_dir / "action_distribution.png"
+        fig.savefig(action_dist_path, dpi=120)
+        plt.close(fig)
+        artifacts["action_distribution_png"] = action_dist_path.name
+
+        fig, ax = plt.subplots(figsize=(11, 4))
+        ax.plot(effective_pos.values, label="effective_position", color="#2ca02c", linewidth=1.5)
+        ax.plot(leverage.values, label="leverage", color="#d62728", linewidth=1.2, alpha=0.9)
+        ax.set_title("Position / Leverage exposure")
+        ax.set_xlabel("step")
+        ax.set_ylabel("exposure")
+        ax.grid(alpha=0.2)
+        ax.legend()
+        fig.tight_layout()
+        exposure_path = run_dir / "leverage_or_position_exposure.png"
+        fig.savefig(exposure_path, dpi=120)
+        plt.close(fig)
+        artifacts["leverage_or_position_exposure_png"] = exposure_path.name
+
+    return artifacts
+
+
+def _build_warning_events(train_progress: list[dict[str, float]]) -> dict[str, Any]:
+    progress_df = pd.DataFrame(train_progress)
+    warnings: list[dict[str, Any]] = []
+    thresholds = {
+        "entropy_drop_ratio": 0.4,
+        "explained_variance_negative_streak": 3,
+        "clip_fraction_high": 0.30,
+    }
+
+    if progress_df.empty:
+        return {"thresholds": thresholds, "events": warnings}
+
+    entropy_series = _safe_series(progress_df["entropy_loss"].astype(float).tolist())
+    if len(entropy_series) >= 2:
+        entropy_abs = entropy_series.abs()
+        baseline = float(entropy_abs.iloc[0])
+        latest = float(entropy_abs.iloc[-1])
+        if baseline > 0 and latest < baseline * thresholds["entropy_drop_ratio"]:
+            warnings.append(
+                {
+                    "type": "entropy_drop",
+                    "timesteps": int(progress_df["timesteps"].iloc[-1]),
+                    "baseline": baseline,
+                    "latest": latest,
+                }
+            )
+
+    explained = progress_df["explained_variance"].astype(float)
+    negative_run = 0
+    max_negative_run = 0
+    for value in explained:
+        if value < 0:
+            negative_run += 1
+        else:
+            max_negative_run = max(max_negative_run, negative_run)
+            negative_run = 0
+    max_negative_run = max(max_negative_run, negative_run)
+    if max_negative_run >= thresholds["explained_variance_negative_streak"]:
+        warnings.append(
+            {
+                "type": "explained_variance_negative_streak",
+                "max_streak": int(max_negative_run),
+                "threshold": int(thresholds["explained_variance_negative_streak"]),
+            }
+        )
+
+    clip_series = progress_df["clip_fraction"].astype(float)
+    high_clip = progress_df.loc[clip_series > thresholds["clip_fraction_high"], ["timesteps", "clip_fraction"]]
+    if not high_clip.empty:
+        warnings.append(
+            {
+                "type": "high_clip_fraction",
+                "count": int(len(high_clip)),
+                "threshold": float(thresholds["clip_fraction_high"]),
+                "samples": [
+                    {"timesteps": int(row["timesteps"]), "clip_fraction": float(row["clip_fraction"])}
+                    for _, row in high_clip.head(10).iterrows()
+                ],
+            }
+        )
+
+    return {"thresholds": thresholds, "events": warnings}
+
+
 def _train_sb3(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
     cfg: AppConfig,
-    run_dir: Path,
+    plots_dir: Path,
+    reports_dir: Path,
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     if train_df.empty or val_df.empty:
         return {"enabled": False, "reason": "insufficient_split_rows"}
@@ -447,6 +649,72 @@ def _train_sb3(
 
     train_env = GymTradingEnv(train_df, train_features, ExecutionModel(), seed=cfg.seed)
     model = _build_sb3_algo(cfg.train.algo, train_env, cfg)
+
+    from stable_baselines3.common.callbacks import BaseCallback
+
+    train_progress: list[dict[str, float]] = []
+    step_trace: list[dict[str, float]] = []
+
+    class TrainingMetricsCallback(BaseCallback):
+        def __init__(self) -> None:
+            super().__init__(verbose=0)
+            self._episode_rewards: list[float] = []
+            self._current_episode_reward = 0.0
+
+        def _on_step(self) -> bool:
+            infos = self.locals.get("infos", [])
+            actions = self.locals.get("actions")
+            reward_values = self.locals.get("rewards")
+            reward = 0.0
+            if reward_values is not None:
+                reward = float(np.asarray(reward_values).reshape(-1)[0])
+            self._current_episode_reward += reward
+
+            action_scalar = 0.0
+            if actions is not None:
+                action_scalar = float(np.asarray(actions).reshape(-1)[0])
+
+            info = infos[0] if infos else {}
+            equity = float(info.get("equity", 0.0))
+            position_value = float(info.get("position_value", 0.0))
+            leverage = abs(position_value) / max(equity, 1e-12)
+            step_trace.append(
+                {
+                    "timesteps": float(self.num_timesteps),
+                    "action": action_scalar,
+                    "effective_position": float(info.get("action_effective_pos", 0.0)),
+                    "target_position": float(info.get("action_target_pos", action_scalar)),
+                    "leverage": float(leverage),
+                    "reward": float(reward),
+                }
+            )
+
+            dones = self.locals.get("dones")
+            done = bool(np.asarray(dones).reshape(-1)[0]) if dones is not None else False
+            if done:
+                self._episode_rewards.append(float(self._current_episode_reward))
+                self._current_episode_reward = 0.0
+            return True
+
+        def _on_rollout_end(self) -> None:
+            values = getattr(self.model.logger, "name_to_value", {})
+            episode_reward = self._episode_rewards[-1] if self._episode_rewards else self._current_episode_reward
+            avg_return = float(np.mean(self._episode_rewards[-20:])) if self._episode_rewards else float(self._current_episode_reward)
+            train_progress.append(
+                {
+                    "timesteps": float(self.num_timesteps),
+                    "episode_reward": float(episode_reward),
+                    "avg_return": avg_return,
+                    "explained_variance": float(values.get("train/explained_variance", 0.0)),
+                    "policy_loss": float(values.get("train/policy_gradient_loss", 0.0)),
+                    "value_loss": float(values.get("train/value_loss", 0.0)),
+                    "entropy_loss": float(values.get("train/entropy_loss", 0.0)),
+                    "approx_kl": float(values.get("train/approx_kl", 0.0)),
+                    "clip_fraction": float(values.get("train/clip_fraction", 0.0)),
+                }
+            )
+
+    callback = TrainingMetricsCallback()
 
     if cfg.train.resume_from:
         model = model.__class__.load(cfg.train.resume_from, env=train_env)
@@ -462,7 +730,7 @@ def _train_sb3(
 
     while trained < total:
         chunk = min(interval, total - trained)
-        model.learn(total_timesteps=chunk, reset_num_timesteps=False)
+        model.learn(total_timesteps=chunk, reset_num_timesteps=False, callback=callback)
         trained += chunk
         val_metrics = _rollout_model(model, val_df, val_features, cfg)
         history.append({"timesteps": trained, "val": val_metrics})
@@ -470,23 +738,23 @@ def _train_sb3(
         if val_metrics["sharpe"] > best_sharpe:
             best_sharpe = val_metrics["sharpe"]
             stale = 0
-            model.save(str(run_dir / "best_model"))
+            model.save(str(artifacts_dir / "model"))
         else:
             stale += 1
 
         if trained % ckpt_interval == 0 or trained == total:
             ckpt_name = f"checkpoint_{trained}.zip"
-            model.save(str(run_dir / ckpt_name.replace(".zip", "")))
+            model.save(str(artifacts_dir / ckpt_name.replace(".zip", "")))
             checkpoints.append(ckpt_name)
 
         if cfg.train.early_stop > 0 and stale >= cfg.train.early_stop:
             break
 
-    best_model_path = run_dir / "best_model.zip"
+    best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = _rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    test_metrics = _rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    val_final = _rollout_model(best_model, val_df, val_features, cfg, reports_dir / "val_trace")
+    test_metrics = _rollout_model(best_model, test_df, test_features, cfg, reports_dir / "test_trace") if not test_df.empty else {"enabled": False}
 
     curve_rows = [
         {
@@ -500,16 +768,25 @@ def _train_sb3(
         }
         for h in history
     ]
-    pd.DataFrame(curve_rows).to_csv(run_dir / "learning_curve.csv", index=False)
-    (run_dir / "learning_curve.json").write_text(json.dumps(curve_rows, indent=2), encoding="utf-8")
-    _render_learning_curve_svg(history, run_dir / "learning_curve.svg")
+    pd.DataFrame(curve_rows).to_csv(plots_dir / "learning_curve.csv", index=False)
+    (plots_dir / "learning_curve.json").write_text(json.dumps(curve_rows, indent=2), encoding="utf-8")
+    _render_learning_curve_svg(history, plots_dir / "learning_curve.svg")
+
+    train_artifacts = _render_training_artifacts(run_dir, train_progress, step_trace)
+    warning_metrics = _build_warning_events(train_progress)
+    metrics_payload = {
+        "train_progress": train_progress,
+        "action_trace": step_trace,
+        "warning_events": warning_metrics,
+    }
+    (run_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
 
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
         "steps": int(trained),
-        "best_model": "best_model.zip" if best_model_path.exists() else None,
+        "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
         "val_metrics": val_final,
@@ -518,12 +795,14 @@ def _train_sb3(
             "learning_curve_csv": "learning_curve.csv",
             "learning_curve_json": "learning_curve.json",
             "learning_curve_svg": "learning_curve.svg",
+            "metrics_json": "metrics.json",
             "best_model": "best_model.zip" if best_model_path.exists() else None,
             "val_trace_dir": "val_trace",
             "test_trace_dir": "test_trace",
+            **train_artifacts,
         },
     }
-    (run_dir / "evaluation_metrics.json").write_text(
+    (reports_dir / "metrics.json").write_text(
         json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
         encoding="utf-8",
     )
@@ -532,15 +811,36 @@ def _train_sb3(
 
 def run() -> str:
     cfg = load_config()
-    run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
+    start_time_utc = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
+    run_id = make_run_id()
     run_dir = Path("runs") / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir = run_dir / "plots"
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    default_config_path = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
-    (run_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(run_dir)
+    config_path = Path("config/default.yaml")
+    if not config_path.exists():
+        config_path = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
+    (artifacts_dir / "config.yaml").write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    _write_metadata(
+        artifacts_dir,
+        seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
+        start_time_utc=start_time_utc,
+        git_sha_value=git_sha(),
+        data_range={
+            "train": list(cfg.split.train),
+            "val": list(cfg.split.val),
+            "test": list(cfg.split.test),
+        },
+    )
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
+    candles_df = preprocess_training_candles(candles_df)
+    diagnostics = generate_data_diagnostics(candles_df, run_dir, cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
 
     all_features_df = compute_offline(candles_df) if not candles_df.empty else pd.DataFrame(columns=FEATURE_COLUMNS)
@@ -554,14 +854,14 @@ def run() -> str:
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
     if dataset_summary["rows"] > 0:
         try:
-            train_summary = _train_sb3(train_df, val_df, test_df, cfg, run_dir)
+            train_summary = _train_sb3(train_df, val_df, test_df, cfg, plots_dir, reports_dir, artifacts_dir)
         except RuntimeError as exc:
             status = "blocked_missing_dependencies"
             train_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
     else:
         train_summary = {"enabled": False, "reason": "no_data"}
 
-    (run_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
+    (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
     write_data_manifest(
         run_dir,
@@ -573,6 +873,7 @@ def run() -> str:
             "processed": {"time_unit": "ms"},
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
+            "diagnostics": diagnostics,
             "dataset": dataset_summary,
         },
     )
@@ -618,7 +919,7 @@ def run() -> str:
             },
         },
     )
-    (run_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
+    (reports_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
     return run_id
 
 
