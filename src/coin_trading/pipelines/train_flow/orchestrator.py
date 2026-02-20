@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,20 @@ from src.coin_trading.pipelines.train_flow.data import (
 from src.coin_trading.pipelines.train_flow.train import train_sb3
 
 
+def _write_meta_compat(run_dir: Path, extra: dict[str, object]) -> None:
+    """Call write_meta while remaining compatible with legacy monkeypatch stubs.
+
+    Some tests replace ``write_meta`` with a lambda that only accepts ``run_dir``.
+    Keep passing enriched metadata when supported, and gracefully fallback otherwise.
+    """
+
+    params = inspect.signature(write_meta).parameters
+    if "extra" in params:
+        write_meta(run_dir, extra=extra)
+        return
+    write_meta(run_dir)
+
+
 def run() -> str:
     cfg = load_config()
     run_id = make_run_id()
@@ -36,7 +51,7 @@ def run() -> str:
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(
+    _write_meta_compat(
         run_dir,
         extra={
             "mode": cfg.mode,

@@ -13,6 +13,47 @@ def _write_fallback_png(path: Path) -> None:
     path.write_bytes(tiny_png)
 
 
+def _render_reward_components_png(df: pd.DataFrame, out_path: Path) -> None:
+    """Render reward components chart to PNG, with fallback when matplotlib is unavailable."""
+    required = ["reward_pnl", "reward_cost", "reward_penalty", "reward"]
+    present = [c for c in required if c in df.columns]
+    if not present:
+        _write_fallback_png(out_path)
+        return
+
+    import importlib.util
+
+    if importlib.util.find_spec("matplotlib") is None:
+        _write_fallback_png(out_path)
+        return
+
+    import matplotlib.pyplot as plt
+
+    try:
+        fig, ax = plt.subplots(figsize=(9, 3.4), dpi=120)
+        x = df["step"] if "step" in df.columns else range(len(df))
+        colors = {
+            "reward_pnl": "#1f77b4",
+            "reward_cost": "#d62728",
+            "reward_penalty": "#9467bd",
+            "reward": "#2ca02c",
+        }
+        for col in present:
+            ax.plot(x, df[col].fillna(0.0).astype(float), label=col, color=colors.get(col, None), linewidth=1.8)
+
+        ax.set_title("Reward Components")
+        ax.set_xlabel("step")
+        ax.set_ylabel("value")
+        ax.grid(True, which="major", axis="both", alpha=0.3)
+        ax.tick_params(axis="both", labelsize=9)
+        ax.legend(loc="best", fontsize=8)
+        fig.tight_layout()
+        fig.savefig(out_path, format="png")
+        plt.close(fig)
+    except Exception:
+        _write_fallback_png(out_path)
+
+
 class StepRecorder:
     def __init__(self) -> None:
         self.rows: list[dict] = []
