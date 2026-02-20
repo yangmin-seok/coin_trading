@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import base64
 
 import pandas as pd
+
+
+def _write_fallback_png(path: Path) -> None:
+    tiny_png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8t2b8AAAAASUVORK5CYII=")
+    path.write_bytes(tiny_png)
 
 
 class StepRecorder:
@@ -35,6 +41,8 @@ class StepRecorder:
             action_position_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
             costs_path = out / "costs.svg"
             costs_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
+            reward_components_path = out / "reward_components_timeseries.png"
+            _write_fallback_png(reward_components_path)
             return {
                 "csv": csv_path,
                 "svg": reward_equity_path,
@@ -42,6 +50,7 @@ class StepRecorder:
                 "drawdown_turnover_svg": drawdown_turnover_path,
                 "action_position_svg": action_position_path,
                 "costs_svg": costs_path,
+                "reward_components_timeseries_png": reward_components_path,
             }
 
         if "filled_qty" in df.columns:
@@ -94,6 +103,8 @@ class StepRecorder:
             ),
             encoding="utf-8",
         )
+        reward_components_path = out / "reward_components_timeseries.png"
+        _render_reward_components_png(df, reward_components_path)
         return {
             "csv": csv_path,
             "svg": reward_equity_path,
@@ -101,6 +112,7 @@ class StepRecorder:
             "drawdown_turnover_svg": drawdown_turnover_path,
             "action_position_svg": action_position_path,
             "costs_svg": costs_path,
+            "reward_components_timeseries_png": reward_components_path,
         }
 
 
@@ -158,3 +170,32 @@ def _render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], titl
         f"{guides}{lines}{labels}"
         "</svg>"
     )
+
+
+def _render_reward_components_png(df: pd.DataFrame, out_path: Path) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        _write_fallback_png(out_path)
+        return
+
+    n = len(df)
+    x = list(range(n))
+
+    def _series(name: str) -> list[float]:
+        if name in df:
+            return [float(v) for v in df[name].fillna(0.0).tolist()]
+        return [0.0] * n
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.plot(x, _series("reward_pnl"), label="pnl", color="#2a9d8f")
+    ax.plot(x, _series("reward_cost"), label="cost", color="#e76f51")
+    ax.plot(x, _series("reward_penalty"), label="penalty", color="#6d597a")
+    ax.plot(x, _series("reward"), label="reward", color="#264653", alpha=0.6)
+    ax.set_title("Reward components timeseries")
+    ax.set_xlabel("step")
+    ax.grid(alpha=0.2)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)

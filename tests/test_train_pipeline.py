@@ -47,6 +47,12 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
         assert (run_dir / "best_model.zip").exists()
         assert (run_dir / "val_trace" / "reward_equity.svg").exists()
         assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "feature_corr_heatmap.png").exists()
+        assert (run_dir / "feature_importance_proxy.png").exists()
+        assert (run_dir / "transaction_cost_impact.png").exists()
+        assert (run_dir / "metrics.json").exists()
+        assert (run_dir / "val_trace" / "reward_components_timeseries.png").exists()
+        assert (run_dir / "test_trace" / "reward_components_timeseries.png").exists()
     else:
         assert model_train["enabled"] is False
         assert model_train["reason"] == "missing_dependencies"
@@ -54,3 +60,8 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
     assert '"bootstrap_persisted": ' in data_manifest
+
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert "warning_flags" in metrics
+    assert "feature_redundancy_high" in metrics["warning_flags"]
+    assert "reward_scale_outlier" in metrics["warning_flags"]
