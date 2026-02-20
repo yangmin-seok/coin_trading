@@ -39,6 +39,20 @@ class SplitConfig(BaseModel):
     test: tuple[str, str]
 
 
+class TrainConfig(BaseModel):
+    algo: Literal["ppo", "sac"] = "ppo"
+    total_timesteps: int = Field(ge=256, default=1024)
+    learning_rate: float = Field(gt=0.0, default=3e-4)
+    batch_size: int = Field(gt=0, default=64)
+    gamma: float = Field(gt=0.0, le=1.0, default=0.99)
+    n_steps: int = Field(gt=0, default=128)
+    seed: int | None = Field(default=None)
+    eval_interval: int = Field(gt=0, default=256)
+    early_stop: int = Field(ge=0, default=3)
+    checkpoint_interval: int = Field(gt=0, default=512)
+    resume_from: str | None = None
+
+
 class AppConfig(BaseModel):
     mode: Literal["demo", "live", "backtest"] = "demo"
     exchange: Literal["binance"] = "binance"
@@ -52,3 +66,4 @@ class AppConfig(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     features: FeaturesConfig = Field(default_factory=FeaturesConfig)
     split: SplitConfig
+    train: TrainConfig = Field(default_factory=TrainConfig)

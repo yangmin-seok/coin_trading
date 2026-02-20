@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import ensure_training_candles, run, run_training_probe, summarize_dataset_for_training
+from src.coin_trading.pipelines.train import ensure_training_candles, run, summarize_dataset_for_training
 
 
 def test_summarize_dataset_for_training(sample_candles):
@@ -27,42 +27,29 @@ def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     assert persisted in {True, False}
 
 
-def test_training_probe_writes_reward_artifacts(sample_candles, tmp_path: Path):
-    summary = run_training_probe(sample_candles, tmp_path)
-    assert summary["enabled"] is True
-    assert summary["epochs"] == 1
-    assert summary["model"] == "VolTarget-baseline"
-
-    trace_path = tmp_path / summary["artifacts"]["trace_csv"]
-    reward_equity_path = tmp_path / summary["artifacts"]["reward_equity_svg"]
-    drawdown_turnover_path = tmp_path / summary["artifacts"]["drawdown_turnover_svg"]
-    action_position_path = tmp_path / summary["artifacts"]["action_position_svg"]
-    costs_path = tmp_path / summary["artifacts"]["costs_svg"]
-
-    assert trace_path.exists()
-    assert reward_equity_path.exists()
-    assert drawdown_turnover_path.exists()
-    assert action_position_path.exists()
-    assert costs_path.exists()
-
-
-def test_train_run_creates_ready_manifest_with_bootstrap():
+def test_train_run_writes_dependency_block_or_training_artifacts():
     run_id = run()
     run_dir = Path("runs") / run_id
     assert run_dir.exists()
 
     train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
-    assert train_manifest["status"] == "ready"
-    assert train_manifest["epochs"] == 5
-    assert train_manifest["model"] == "LinearPolicyGradient"
-    assert "probe" in train_manifest
-    assert "model_train" in train_manifest
-
     model_train = json.loads((run_dir / "model_train_summary.json").read_text(encoding="utf-8"))
-    assert model_train["enabled"] is True
-    assert model_train["epochs"] == 5
-    assert model_train["model"] == "LinearPolicyGradient"
-    assert len(model_train["history"]) == 5
+
+    assert train_manifest["status"] in {"ready", "blocked_missing_dependencies"}
+
+    if train_manifest["status"] == "ready":
+        assert model_train["enabled"] is True
+        assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
+        assert (run_dir / "learning_curve.csv").exists()
+        assert (run_dir / "learning_curve.json").exists()
+        assert (run_dir / "learning_curve.svg").exists()
+        assert (run_dir / "evaluation_metrics.json").exists()
+        assert (run_dir / "best_model.zip").exists()
+        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+    else:
+        assert model_train["enabled"] is False
+        assert model_train["reason"] == "missing_dependencies"
 
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
