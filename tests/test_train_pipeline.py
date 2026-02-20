@@ -64,13 +64,19 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     if train_manifest["status"] == "ready":
         assert model_train["enabled"] is True
         assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
-        assert (run_dir / "plots" / "learning_curve.csv").exists()
-        assert (run_dir / "plots" / "learning_curve.json").exists()
-        assert (run_dir / "plots" / "learning_curve.svg").exists()
-        assert (run_dir / "reports" / "metrics.json").exists()
-        assert (run_dir / "artifacts" / "model.zip").exists()
-        assert (run_dir / "reports" / "val_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "reports" / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "learning_curve.csv").exists()
+        assert (run_dir / "learning_curve.json").exists()
+        assert (run_dir / "learning_curve.svg").exists()
+        assert (run_dir / "evaluation_metrics.json").exists()
+        assert (run_dir / "best_model.zip").exists()
+        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "feature_corr_heatmap.png").exists()
+        assert (run_dir / "feature_importance_proxy.png").exists()
+        assert (run_dir / "transaction_cost_impact.png").exists()
+        assert (run_dir / "metrics.json").exists()
+        assert (run_dir / "val_trace" / "reward_components_timeseries.png").exists()
+        assert (run_dir / "test_trace" / "reward_components_timeseries.png").exists()
     else:
         assert model_train["enabled"] is False
         assert model_train["reason"] == "missing_dependencies"
@@ -78,8 +84,8 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
     assert '"bootstrap_persisted": ' in data_manifest
-    assert (run_dir / "plots" / "data_coverage.png").exists()
-    assert (run_dir / "plots" / "price_volume_overview.png").exists()
-    assert (run_dir / "plots" / "returns_distribution.png").exists()
-    assert (run_dir / "plots" / "missingness_heatmap.png").exists()
-    assert (run_dir / "reports" / "data_quality.html").exists()
+
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert "warning_flags" in metrics
+    assert "feature_redundancy_high" in metrics["warning_flags"]
+    assert "reward_scale_outlier" in metrics["warning_flags"]

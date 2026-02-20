@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import random
@@ -33,6 +34,7 @@ from src.coin_trading.pipelines.run_manager import (
 )
 from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
+from env.trading_env import TradingEnv
 
 
 PRICE_COLUMNS = ["open", "high", "low", "close"]
@@ -173,145 +175,156 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
     }
 
 
-def _write_png(path: Path, rgb: np.ndarray) -> None:
-    height, width, _ = rgb.shape
-    raw = b"".join(b"\x00" + rgb[row].astype(np.uint8).tobytes() for row in range(height))
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", binascii.crc32(tag + data) & 0xFFFFFFFF)
-
-    header = b"\x89PNG\r\n\x1a\n"
-    ihdr = _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-    idat = _chunk(b"IDAT", zlib.compress(raw, level=6))
-    iend = _chunk(b"IEND", b"")
-    path.write_bytes(header + ihdr + idat + iend)
-
-
-def _sparkline_image(series: pd.Series, width: int = 1200, height: int = 420, line_color: tuple[int, int, int] = (31, 119, 180)) -> np.ndarray:
-    img = np.full((height, width, 3), 255, dtype=np.uint8)
-    vals = series.to_numpy(dtype=float)
-    if len(vals) < 2:
-        return img
-    ymin, ymax = float(np.nanmin(vals)), float(np.nanmax(vals))
-    if ymax == ymin:
-        ymax = ymin + 1.0
-    xs = np.linspace(20, width - 20, len(vals)).astype(int)
-    ys = (height - 20 - ((vals - ymin) / (ymax - ymin) * (height - 40))).astype(int)
-    ys = np.clip(ys, 0, height - 1)
-    for i in range(1, len(xs)):
-        x0, x1 = xs[i - 1], xs[i]
-        y0, y1 = ys[i - 1], ys[i]
-        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
-        for t in range(steps + 1):
-            x = int(x0 + (x1 - x0) * t / steps)
-            y = int(y0 + (y1 - y0) * t / steps)
-            img[max(0, y - 1) : min(height, y + 2), max(0, x - 1) : min(width, x + 2)] = line_color
-    return img
-
-
-def _hist_image(values: np.ndarray, width: int = 1200, height: int = 420, bins: int = 60) -> np.ndarray:
-    img = np.full((height, width, 3), 255, dtype=np.uint8)
-    hist, _ = np.histogram(values, bins=bins)
-    hist = hist.astype(float)
-    peak = hist.max() if len(hist) else 0.0
-    if peak <= 0:
-        return img
-    bar_w = max(1, (width - 40) // bins)
-    for idx, count in enumerate(hist):
-        h = int((count / peak) * (height - 40))
-        x0 = 20 + idx * bar_w
-        x1 = min(width - 20, x0 + bar_w - 1)
-        y0 = height - 20 - h
-        img[y0 : height - 20, x0:x1] = (148, 103, 189)
-    return img
-
-
-def generate_data_diagnostics(candles_df: pd.DataFrame, run_dir: Path, cfg: AppConfig) -> dict[str, Any]:
-    plots_dir = run_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-    reports_dir = run_dir / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    warnings: list[str] = []
-
-    data_coverage_path = plots_dir / "data_coverage.png"
-    price_volume_path = plots_dir / "price_volume_overview.png"
-    returns_distribution_path = plots_dir / "returns_distribution.png"
-    missing_heatmap_path = plots_dir / "missingness_heatmap.png"
-
-    if candles_df.empty:
-        blank = np.full((420, 1200, 3), 255, dtype=np.uint8)
-        for p in [data_coverage_path, price_volume_path, returns_distribution_path, missing_heatmap_path]:
-            _write_png(p, blank)
-        warnings.append("Dataset is empty; diagnostics plots contain no data.")
-        (reports_dir / "data_quality.html").write_text(
-            "<html><body><h2>Data Quality Warnings</h2><ul><li>Dataset is empty.</li></ul></body></html>",
-            encoding="utf-8",
-        )
-        return {"warnings": warnings, "plots": [str(p.relative_to(run_dir)) for p in [data_coverage_path, price_volume_path, returns_distribution_path, missing_heatmap_path]]}
-
-    df = candles_df.sort_values("open_time").reset_index(drop=True)
-    step_ms = _interval_to_ms(cfg.interval)
-    diffs = df["open_time"].diff().fillna(step_ms)
-    gap_counts = ((diffs // step_ms) - 1).clip(lower=0)
-
-    rows_per_day = df.assign(date=pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.date).groupby("date").size().astype(float)
-    coverage_img = _sparkline_image(diffs.astype(float), line_color=(31, 119, 180))
-    coverage_img[220:] = _sparkline_image(rows_per_day, width=1200, height=200, line_color=(44, 160, 44))[:200]
-    _write_png(data_coverage_path, coverage_img)
-
-    price_img = _sparkline_image(df["close"].astype(float), line_color=(31, 119, 180))
-    vol_img = _sparkline_image(df["volume"].astype(float), line_color=(255, 127, 14))
-    price_img[260:] = vol_img[:160]
-    _write_png(price_volume_path, price_img)
-
-    log_ret = np.log(df["close"].astype(float)).diff().dropna().to_numpy(dtype=float)
-    tail = np.abs(log_ret)
-    hist_img = _hist_image(log_ret)
-    tail_img = _hist_image(tail)
-    returns_img = np.concatenate([hist_img[:, :600], tail_img[:, 600:]], axis=1)
-    _write_png(returns_distribution_path, returns_img)
-
-    features_df = compute_offline(df)
-    missing_matrix = features_df[FEATURE_COLUMNS].isna().astype(np.uint8).to_numpy().T
-    heat_h, heat_w = missing_matrix.shape
-    scale_y = max(1, 420 // max(1, heat_h))
-    scale_x = max(1, 1200 // max(1, heat_w))
-    heat = np.kron(missing_matrix, np.ones((scale_y, scale_x), dtype=np.uint8))
-    heat = heat[:420, :1200]
-    heat_rgb = np.full((heat.shape[0], heat.shape[1], 3), 255, dtype=np.uint8)
-    heat_rgb[heat == 1] = (68, 1, 84)
-    _write_png(missing_heatmap_path, heat_rgb)
-
-    missing_gaps = int(gap_counts.sum())
-    if missing_gaps > 0:
-        warnings.append(f"Detected candle gaps: missing candles={missing_gaps}.")
-
-    feature_missing_ratio = features_df[FEATURE_COLUMNS].isna().mean()
-    over_threshold = feature_missing_ratio[feature_missing_ratio > MAX_ALLOWED_FEATURE_MISSING_RATIO]
-    if not over_threshold.empty:
-        detail = ", ".join(f"{name}: {ratio:.2%}" for name, ratio in over_threshold.items())
-        warnings.append(f"Abnormal feature missingness ratio detected (> {MAX_ALLOWED_FEATURE_MISSING_RATIO:.0%}): {detail}")
-
-    warning_items = "".join(f"<li>{w}</li>" for w in warnings) if warnings else "<li>No warnings.</li>"
-    (reports_dir / "data_quality.html").write_text(
-        (
-            "<html><body>"
-            "<h2>Data Quality Warnings</h2>"
-            f"<p>run_id={run_dir.name}</p>"
-            f"<ul>{warning_items}</ul>"
-            "</body></html>"
-        ),
-        encoding="utf-8",
+def _write_fallback_png(path: Path) -> None:
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8t2b8AAAAASUVORK5CYII="
     )
+    path.write_bytes(tiny_png)
+
+
+def _save_line_chart_png(x: list[int], series: dict[str, list[float]], out_path: Path, title: str) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        _write_fallback_png(out_path)
+        return
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for name, vals in series.items():
+        ax.plot(x, vals, label=name)
+    ax.set_title(title)
+    ax.set_xlabel("step")
+    ax.grid(alpha=0.2)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
+def _write_feature_visualizations(features_df: pd.DataFrame, out_dir: Path) -> dict[str, Any]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    heatmap_path = out_dir / "feature_corr_heatmap.png"
+    importance_path = out_dir / "feature_importance_proxy.png"
+
+    subset = features_df[FEATURE_COLUMNS].fillna(0.0).astype(float) if not features_df.empty else pd.DataFrame(columns=FEATURE_COLUMNS)
+    corr = subset.corr().fillna(0.0) if not subset.empty else pd.DataFrame(np.eye(len(FEATURE_COLUMNS)), index=FEATURE_COLUMNS, columns=FEATURE_COLUMNS)
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        _write_fallback_png(heatmap_path)
+        _write_fallback_png(importance_path)
+        importance = {c: 0.0 for c in FEATURE_COLUMNS}
+        return {
+            "feature_corr_heatmap": str(heatmap_path.name),
+            "feature_importance_proxy": str(importance_path.name),
+            "importance_proxy": importance,
+            "max_abs_corr_offdiag": 0.0,
+        }
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    im = ax.imshow(corr.values, cmap="coolwarm", vmin=-1.0, vmax=1.0)
+    ax.set_xticks(range(len(FEATURE_COLUMNS)))
+    ax.set_yticks(range(len(FEATURE_COLUMNS)))
+    ax.set_xticklabels(FEATURE_COLUMNS, rotation=90, fontsize=7)
+    ax.set_yticklabels(FEATURE_COLUMNS, fontsize=7)
+    ax.set_title("Feature correlation")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    fig.savefig(heatmap_path, dpi=160)
+    plt.close(fig)
+
+    target = subset["logret_1"].shift(-1).fillna(0.0) if "logret_1" in subset else pd.Series([0.0] * len(subset))
+    importance: dict[str, float] = {}
+    for col in FEATURE_COLUMNS:
+        vals = subset[col] if col in subset else pd.Series([0.0] * len(subset))
+        coef = float(np.corrcoef(vals.to_numpy(), target.to_numpy())[0, 1]) if len(vals) > 1 else 0.0
+        if not np.isfinite(coef):
+            coef = 0.0
+        importance[col] = abs(coef)
+
+    order = sorted(importance, key=importance.get, reverse=True)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    x_pos = list(range(len(order)))
+    ax.bar(x_pos, [importance[k] for k in order], color="#2a9d8f")
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(order, rotation=55, ha="right", fontsize=8)
+    ax.set_title("Feature importance proxy (|corr with next logret_1|)")
+    fig.tight_layout()
+    fig.savefig(importance_path, dpi=160)
+    plt.close(fig)
+
+    abs_corr = corr.abs().to_numpy()
+    max_abs_corr = 0.0
+    if abs_corr.size:
+        mask = ~np.eye(abs_corr.shape[0], dtype=bool)
+        max_abs_corr = float(abs_corr[mask].max()) if mask.any() else 0.0
 
     return {
-        "warnings": warnings,
-        "plots": [
-            str(data_coverage_path.relative_to(run_dir)),
-            str(price_volume_path.relative_to(run_dir)),
-            str(returns_distribution_path.relative_to(run_dir)),
-            str(missing_heatmap_path.relative_to(run_dir)),
-        ],
+        "feature_corr_heatmap": str(heatmap_path.name),
+        "feature_importance_proxy": str(importance_path.name),
+        "importance_proxy": importance,
+        "max_abs_corr_offdiag": max_abs_corr,
+    }
+
+
+def _run_transaction_cost_impact_experiment(candles_df: pd.DataFrame, features_df: pd.DataFrame, out_dir: Path) -> dict[str, Any]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "transaction_cost_impact.png"
+    if candles_df.empty or len(candles_df) < 5:
+        _write_fallback_png(out_path)
+        return {"artifact": out_path.name, "warning": "insufficient_rows"}
+
+    sample_len = int(min(120, len(candles_df)))
+    sample_candles = candles_df.iloc[:sample_len].reset_index(drop=True)
+    sample_features = features_df.iloc[:sample_len].reset_index(drop=True)
+
+    series: dict[str, list[float]] = {}
+    summary: dict[str, float] = {}
+    for label, model in {
+        "cost_on": ExecutionModel(),
+        "cost_off": ExecutionModel(fee_rate=0.0, slippage_bps=0.0),
+    }.items():
+        env = TradingEnv(sample_candles, sample_features, model)
+        env.reset()
+        done = False
+        i = 0
+        rewards: list[float] = []
+        equities: list[float] = []
+        while not done:
+            action = 0.9 if (i % 8) < 4 else 0.1
+            _, reward, done, info = env.step(action)
+            if "equity" in info:
+                rewards.append(float(reward))
+                equities.append(float(info["equity"]))
+            i += 1
+        series[f"{label}_equity"] = equities
+        summary[f"{label}_final_equity"] = equities[-1] if equities else 0.0
+        summary[f"{label}_avg_reward"] = float(np.mean(rewards)) if rewards else 0.0
+
+    x = list(range(max((len(v) for v in series.values()), default=0)))
+    aligned = {k: (v + [v[-1]] * (len(x) - len(v)) if v else [0.0] * len(x)) for k, v in series.items()}
+    _save_line_chart_png(x, aligned, out_path, "Transaction cost on/off impact")
+    return {"artifact": out_path.name, **summary, "sample_rows": sample_len}
+
+
+def _compute_warning_flags(features_info: dict[str, Any], reward_metrics: dict[str, Any]) -> dict[str, Any]:
+    max_abs_corr = float(features_info.get("max_abs_corr_offdiag", 0.0))
+    reward_abs_max = float(reward_metrics.get("reward_abs_max", 0.0))
+    reward_std = float(reward_metrics.get("reward_std", 0.0))
+    return {
+        "feature_redundancy_high": max_abs_corr >= 0.95,
+        "reward_scale_outlier": (reward_abs_max >= 0.2) or (reward_std >= 0.05),
+        "thresholds": {
+            "feature_redundancy_max_abs_corr": 0.95,
+            "reward_abs_max": 0.2,
+            "reward_std": 0.05,
+        },
+        "observed": {
+            "max_abs_corr_offdiag": max_abs_corr,
+            "reward_abs_max": reward_abs_max,
+            "reward_std": reward_std,
+        },
     }
 
 
@@ -401,6 +414,8 @@ def _rollout_model(model: Any, candles_df: pd.DataFrame, features_df: pd.DataFra
         "max_drawdown": float(trace["drawdown"].max()) if "drawdown" in trace else 0.0,
         "turnover": float(trace["filled_qty"].abs().mean()) if "filled_qty" in trace else 0.0,
         "win_rate": float((reward > 0).mean()),
+        "reward_abs_max": float(reward.abs().max()),
+        "reward_std": float(reward.std(ddof=0)),
     }
     if artifacts_dir is not None:
         files = eval_env.env.recorder.write_trace_artifacts(artifacts_dir)
@@ -828,6 +843,10 @@ def run() -> str:
     diagnostics = generate_data_diagnostics(candles_df, run_dir, cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
 
+    all_features_df = compute_offline(candles_df) if not candles_df.empty else pd.DataFrame(columns=FEATURE_COLUMNS)
+    feature_viz = _write_feature_visualizations(all_features_df, run_dir)
+    cost_impact = _run_transaction_cost_impact_experiment(candles_df, all_features_df, run_dir)
+
     train_df = _split_by_date(candles_df, cfg.split.train)
     val_df = _split_by_date(candles_df, cfg.split.val)
     test_df = _split_by_date(candles_df, cfg.split.test)
@@ -873,6 +892,17 @@ def run() -> str:
             ),
         },
     )
+    warning_flags = _compute_warning_flags(feature_viz, train_summary.get("val_metrics", {}))
+    metrics_payload = {
+        "warning_flags": warning_flags,
+        "feature_visualization": {
+            "feature_corr_heatmap": feature_viz["feature_corr_heatmap"],
+            "feature_importance_proxy": feature_viz["feature_importance_proxy"],
+        },
+        "transaction_cost_impact": cost_impact,
+    }
+    (run_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+
     write_train_manifest(
         run_dir,
         {
@@ -882,6 +912,11 @@ def run() -> str:
             "epochs": 0,
             "model": train_summary.get("model", "none"),
             "model_train": train_summary,
+            "artifacts": {
+                "feature_corr_heatmap": feature_viz["feature_corr_heatmap"],
+                "feature_importance_proxy": feature_viz["feature_importance_proxy"],
+                "transaction_cost_impact": cost_impact["artifact"],
+            },
         },
     )
     (reports_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
