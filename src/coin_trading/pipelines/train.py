@@ -5,6 +5,10 @@ import random
 from pathlib import Path
 from typing import Any
 
+import binascii
+import struct
+import zlib
+
 import numpy as np
 import pandas as pd
 
@@ -25,6 +29,10 @@ from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
 
 
+PRICE_COLUMNS = ["open", "high", "low", "close"]
+MAX_ALLOWED_FEATURE_MISSING_RATIO = 0.05
+
+
 def _train_data_glob(cfg: AppConfig) -> str:
     return (
         f"exchange={cfg.exchange}/market={cfg.market}/symbol={cfg.symbol}/"
@@ -39,6 +47,16 @@ def load_training_candles(cfg: AppConfig, data_root: Path = Path("data/processed
     candles = pd.read_parquet(files)
     candles = candles.sort_values("open_time").drop_duplicates(subset=["open_time"], keep="last").reset_index(drop=True)
     return candles
+
+
+def preprocess_training_candles(candles_df: pd.DataFrame, price_fill_method: str | None = None) -> pd.DataFrame:
+    if price_fill_method in {"ffill", "pad", "forward_fill"}:
+        raise ValueError("Forward fill for price columns is forbidden. Use raw market data without price forward fill.")
+
+    clean = candles_df.copy()
+    if clean[PRICE_COLUMNS].isna().any(axis=None):
+        raise ValueError("NaN detected in price columns. Forward filling price series is forbidden by preprocessing policy.")
+    return clean
 
 
 def _interval_to_ms(interval: str) -> int:
@@ -146,6 +164,148 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
             "nan_ratio_mean": float(feature_nan_ratio.mean()),
             "nan_ratio_by_feature": {k: float(v) for k, v in feature_nan_ratio.to_dict().items()},
         },
+    }
+
+
+def _write_png(path: Path, rgb: np.ndarray) -> None:
+    height, width, _ = rgb.shape
+    raw = b"".join(b"\x00" + rgb[row].astype(np.uint8).tobytes() for row in range(height))
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", binascii.crc32(tag + data) & 0xFFFFFFFF)
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    idat = _chunk(b"IDAT", zlib.compress(raw, level=6))
+    iend = _chunk(b"IEND", b"")
+    path.write_bytes(header + ihdr + idat + iend)
+
+
+def _sparkline_image(series: pd.Series, width: int = 1200, height: int = 420, line_color: tuple[int, int, int] = (31, 119, 180)) -> np.ndarray:
+    img = np.full((height, width, 3), 255, dtype=np.uint8)
+    vals = series.to_numpy(dtype=float)
+    if len(vals) < 2:
+        return img
+    ymin, ymax = float(np.nanmin(vals)), float(np.nanmax(vals))
+    if ymax == ymin:
+        ymax = ymin + 1.0
+    xs = np.linspace(20, width - 20, len(vals)).astype(int)
+    ys = (height - 20 - ((vals - ymin) / (ymax - ymin) * (height - 40))).astype(int)
+    ys = np.clip(ys, 0, height - 1)
+    for i in range(1, len(xs)):
+        x0, x1 = xs[i - 1], xs[i]
+        y0, y1 = ys[i - 1], ys[i]
+        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+        for t in range(steps + 1):
+            x = int(x0 + (x1 - x0) * t / steps)
+            y = int(y0 + (y1 - y0) * t / steps)
+            img[max(0, y - 1) : min(height, y + 2), max(0, x - 1) : min(width, x + 2)] = line_color
+    return img
+
+
+def _hist_image(values: np.ndarray, width: int = 1200, height: int = 420, bins: int = 60) -> np.ndarray:
+    img = np.full((height, width, 3), 255, dtype=np.uint8)
+    hist, _ = np.histogram(values, bins=bins)
+    hist = hist.astype(float)
+    peak = hist.max() if len(hist) else 0.0
+    if peak <= 0:
+        return img
+    bar_w = max(1, (width - 40) // bins)
+    for idx, count in enumerate(hist):
+        h = int((count / peak) * (height - 40))
+        x0 = 20 + idx * bar_w
+        x1 = min(width - 20, x0 + bar_w - 1)
+        y0 = height - 20 - h
+        img[y0 : height - 20, x0:x1] = (148, 103, 189)
+    return img
+
+
+def generate_data_diagnostics(candles_df: pd.DataFrame, run_dir: Path, cfg: AppConfig) -> dict[str, Any]:
+    plots_dir = run_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir = run_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    warnings: list[str] = []
+
+    data_coverage_path = plots_dir / "data_coverage.png"
+    price_volume_path = plots_dir / "price_volume_overview.png"
+    returns_distribution_path = plots_dir / "returns_distribution.png"
+    missing_heatmap_path = plots_dir / "missingness_heatmap.png"
+
+    if candles_df.empty:
+        blank = np.full((420, 1200, 3), 255, dtype=np.uint8)
+        for p in [data_coverage_path, price_volume_path, returns_distribution_path, missing_heatmap_path]:
+            _write_png(p, blank)
+        warnings.append("Dataset is empty; diagnostics plots contain no data.")
+        (reports_dir / "data_quality.html").write_text(
+            "<html><body><h2>Data Quality Warnings</h2><ul><li>Dataset is empty.</li></ul></body></html>",
+            encoding="utf-8",
+        )
+        return {"warnings": warnings, "plots": [str(p.relative_to(run_dir)) for p in [data_coverage_path, price_volume_path, returns_distribution_path, missing_heatmap_path]]}
+
+    df = candles_df.sort_values("open_time").reset_index(drop=True)
+    step_ms = _interval_to_ms(cfg.interval)
+    diffs = df["open_time"].diff().fillna(step_ms)
+    gap_counts = ((diffs // step_ms) - 1).clip(lower=0)
+
+    rows_per_day = df.assign(date=pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.date).groupby("date").size().astype(float)
+    coverage_img = _sparkline_image(diffs.astype(float), line_color=(31, 119, 180))
+    coverage_img[220:] = _sparkline_image(rows_per_day, width=1200, height=200, line_color=(44, 160, 44))[:200]
+    _write_png(data_coverage_path, coverage_img)
+
+    price_img = _sparkline_image(df["close"].astype(float), line_color=(31, 119, 180))
+    vol_img = _sparkline_image(df["volume"].astype(float), line_color=(255, 127, 14))
+    price_img[260:] = vol_img[:160]
+    _write_png(price_volume_path, price_img)
+
+    log_ret = np.log(df["close"].astype(float)).diff().dropna().to_numpy(dtype=float)
+    tail = np.abs(log_ret)
+    hist_img = _hist_image(log_ret)
+    tail_img = _hist_image(tail)
+    returns_img = np.concatenate([hist_img[:, :600], tail_img[:, 600:]], axis=1)
+    _write_png(returns_distribution_path, returns_img)
+
+    features_df = compute_offline(df)
+    missing_matrix = features_df[FEATURE_COLUMNS].isna().astype(np.uint8).to_numpy().T
+    heat_h, heat_w = missing_matrix.shape
+    scale_y = max(1, 420 // max(1, heat_h))
+    scale_x = max(1, 1200 // max(1, heat_w))
+    heat = np.kron(missing_matrix, np.ones((scale_y, scale_x), dtype=np.uint8))
+    heat = heat[:420, :1200]
+    heat_rgb = np.full((heat.shape[0], heat.shape[1], 3), 255, dtype=np.uint8)
+    heat_rgb[heat == 1] = (68, 1, 84)
+    _write_png(missing_heatmap_path, heat_rgb)
+
+    missing_gaps = int(gap_counts.sum())
+    if missing_gaps > 0:
+        warnings.append(f"Detected candle gaps: missing candles={missing_gaps}.")
+
+    feature_missing_ratio = features_df[FEATURE_COLUMNS].isna().mean()
+    over_threshold = feature_missing_ratio[feature_missing_ratio > MAX_ALLOWED_FEATURE_MISSING_RATIO]
+    if not over_threshold.empty:
+        detail = ", ".join(f"{name}: {ratio:.2%}" for name, ratio in over_threshold.items())
+        warnings.append(f"Abnormal feature missingness ratio detected (> {MAX_ALLOWED_FEATURE_MISSING_RATIO:.0%}): {detail}")
+
+    warning_items = "".join(f"<li>{w}</li>" for w in warnings) if warnings else "<li>No warnings.</li>"
+    (reports_dir / "data_quality.html").write_text(
+        (
+            "<html><body>"
+            "<h2>Data Quality Warnings</h2>"
+            f"<p>run_id={run_dir.name}</p>"
+            f"<ul>{warning_items}</ul>"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+
+    return {
+        "warnings": warnings,
+        "plots": [
+            str(data_coverage_path.relative_to(run_dir)),
+            str(price_volume_path.relative_to(run_dir)),
+            str(returns_distribution_path.relative_to(run_dir)),
+            str(missing_heatmap_path.relative_to(run_dir)),
+        ],
     }
 
 
@@ -384,6 +544,8 @@ def run() -> str:
     write_meta(run_dir)
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
+    candles_df = preprocess_training_candles(candles_df)
+    diagnostics = generate_data_diagnostics(candles_df, run_dir, cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
 
     train_df = _split_by_date(candles_df, cfg.split.train)
@@ -412,6 +574,7 @@ def run() -> str:
             "processed": {"time_unit": "ms"},
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
+            "diagnostics": diagnostics,
             "dataset": dataset_summary,
         },
     )

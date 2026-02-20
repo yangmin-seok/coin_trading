@@ -3,9 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import ensure_training_candles, run, summarize_dataset_for_training
+import pytest
 
+from src.coin_trading.config.loader import load_config
+from src.coin_trading.pipelines.train import (
+    ensure_training_candles,
+    preprocess_training_candles,
+    run,
+    summarize_dataset_for_training,
+)
 
 def test_summarize_dataset_for_training(sample_candles):
     cfg = load_config()
@@ -17,6 +23,15 @@ def test_summarize_dataset_for_training(sample_candles):
     assert summary["features"]["rows"] == len(sample_candles)
     assert 0.0 <= summary["features"]["nan_ratio_mean"] <= 1.0
 
+def test_preprocess_training_candles_forbids_price_forward_fill(sample_candles):
+    with pytest.raises(ValueError, match="Forward fill"):
+        preprocess_training_candles(sample_candles, price_fill_method="ffill")
+
+def test_preprocess_training_candles_raises_on_price_nan(sample_candles):
+    df = sample_candles.copy()
+    df.loc[df.index[0], "close"] = None
+    with pytest.raises(ValueError, match="price columns"):
+        preprocess_training_candles(df)
 
 def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     cfg = load_config()
@@ -25,7 +40,6 @@ def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     assert len(candles) > 0
     assert sorted(candles.columns.tolist()) == sorted(["open_time", "open", "high", "low", "close", "volume", "close_time"])
     assert persisted in {True, False}
-
 
 def test_train_run_writes_dependency_block_or_training_artifacts():
     run_id = run()
@@ -54,3 +68,8 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
     assert '"bootstrap_persisted": ' in data_manifest
+    assert (run_dir / "plots" / "data_coverage.png").exists()
+    assert (run_dir / "plots" / "price_volume_overview.png").exists()
+    assert (run_dir / "plots" / "returns_distribution.png").exists()
+    assert (run_dir / "plots" / "missingness_heatmap.png").exists()
+    assert (run_dir / "reports" / "data_quality.html").exists()
