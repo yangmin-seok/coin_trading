@@ -20,6 +20,8 @@ from src.coin_trading.pipelines.train_flow.features import (
 )
 from src.coin_trading.report.plotting import write_learning_curve_artifacts
 
+EPSILON = 1e-9
+
 
 def seed_everything(seed: int) -> None:
     np.random.seed(seed)
@@ -60,6 +62,56 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
             verbose=0,
         )
     raise ValueError(f"unsupported algo: {algo_name}")
+
+
+def _compute_model_selection_score(metrics: dict[str, Any], cfg: AppConfig) -> dict[str, Any]:
+    sharpe = float(metrics.get("sharpe", 0.0) or 0.0)
+    final_equity = float(metrics.get("final_equity", 0.0) or 0.0)
+    turnover = float(metrics.get("turnover", 0.0) or 0.0)
+    turnover_cap = float(cfg.execution.max_step_change)
+
+    turnover_excess = max(0.0, turnover - turnover_cap)
+    penalty = turnover_excess * 100.0
+    score = sharpe - penalty
+
+    return {
+        "score": float(score),
+        "sharpe": sharpe,
+        "final_equity": final_equity,
+        "turnover": turnover,
+        "turnover_cap": turnover_cap,
+        "turnover_penalty": float(penalty),
+        "turnover_excess": float(turnover_excess),
+    }
+
+
+def _is_better_model_candidate(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    if current is None:
+        return True
+
+    cand_score = float(candidate["score"])
+    curr_score = float(current["score"])
+    if cand_score > curr_score + EPSILON:
+        return True
+    if abs(cand_score - curr_score) <= EPSILON:
+        cand_sharpe = float(candidate["sharpe"])
+        curr_sharpe = float(current["sharpe"])
+        if cand_sharpe > curr_sharpe + EPSILON:
+            return True
+        if abs(cand_sharpe - curr_sharpe) <= EPSILON:
+            cand_equity = float(candidate["final_equity"])
+            curr_equity = float(current["final_equity"])
+            if cand_equity > curr_equity + EPSILON:
+                return True
+    return False
+
+
+def _select_training_schedule(cfg: AppConfig) -> tuple[int, int, int, int]:
+    total = max(int(cfg.train.total_timesteps), 10_000)
+    interval = min(max(int(cfg.train.eval_interval), 2_000), total)
+    early_stop = max(int(cfg.train.early_stop), 5)
+    checkpoint_interval = max(int(cfg.train.checkpoint_interval), interval)
+    return total, interval, early_stop, checkpoint_interval
 
 
 def _unique(values: list[float]) -> list[float]:
@@ -132,10 +184,8 @@ def _run_single_experiment(
     if cfg.train.resume_from:
         model = model.__class__.load(cfg.train.resume_from, env=train_env)
 
-    total = cfg.train.total_timesteps
-    interval = min(cfg.train.eval_interval, total)
-    ckpt_interval = cfg.train.checkpoint_interval
-    best_sharpe = -1e9
+    total, interval, early_stop_rounds, ckpt_interval = _select_training_schedule(cfg)
+    best_candidate: dict[str, Any] | None = None
     stale = 0
     trained = 0
     history: list[dict[str, Any]] = []
@@ -146,10 +196,12 @@ def _run_single_experiment(
         model.learn(total_timesteps=chunk, reset_num_timesteps=False)
         trained += chunk
         val_metrics = rollout_model(model, val_df, val_features, cfg)
-        history.append({"timesteps": trained, "val": val_metrics})
+        candidate = _compute_model_selection_score(val_metrics, cfg)
+        candidate_record = {"timesteps": trained, "val": val_metrics, "selection": candidate}
+        history.append(candidate_record)
 
-        if val_metrics["sharpe"] > best_sharpe:
-            best_sharpe = val_metrics["sharpe"]
+        if _is_better_model_candidate(candidate, best_candidate):
+            best_candidate = {"timesteps": trained, **candidate}
             stale = 0
             model.save(str(artifacts_dir / "model"))
         else:
@@ -160,7 +212,7 @@ def _run_single_experiment(
             model.save(str(artifacts_dir / ckpt_name.replace(".zip", "")))
             checkpoints.append(f"artifacts/{ckpt_name}")
 
-        if cfg.train.early_stop > 0 and stale >= cfg.train.early_stop:
+        if early_stop_rounds > 0 and stale >= early_stop_rounds:
             break
 
     best_model_path = artifacts_dir / "model.zip"
@@ -171,6 +223,31 @@ def _run_single_experiment(
 
     write_learning_curve_artifacts(history, reports_dir, plots_dir)
 
+    selection_summary = {
+        "criteria": "maximize composite score (sharpe - turnover_penalty), then higher sharpe, then higher final_equity",
+        "best_candidate": best_candidate,
+        "training_schedule": {
+            "configured": {
+                "total_timesteps": cfg.train.total_timesteps,
+                "eval_interval": cfg.train.eval_interval,
+                "early_stop": cfg.train.early_stop,
+                "checkpoint_interval": cfg.train.checkpoint_interval,
+            },
+            "effective": {
+                "total_timesteps": total,
+                "eval_interval": interval,
+                "early_stop": early_stop_rounds,
+                "checkpoint_interval": ckpt_interval,
+            },
+        },
+    }
+    metrics_payload = {
+        "history": history,
+        "selection": selection_summary,
+        "val": val_final,
+        "test": test_metrics,
+    }
+
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
@@ -179,6 +256,7 @@ def _run_single_experiment(
         "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
+        "selection": metrics_payload["selection"],
         "val_metrics": val_final,
         "test_metrics": test_metrics,
         "artifacts": {
@@ -191,10 +269,7 @@ def _run_single_experiment(
             "evaluation_metrics": "artifacts/metrics.json",
         },
     }
-    (artifacts_dir / "metrics.json").write_text(
-        json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
-        encoding="utf-8",
-    )
+    (artifacts_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
     return summary
 
 
