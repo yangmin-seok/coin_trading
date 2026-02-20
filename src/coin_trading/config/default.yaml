@@ -56,19 +56,19 @@ split:
 train:
   algo: ppo
   device: auto
-  total_timesteps: 1024
+  total_timesteps: 20000
   learning_rate: 0.0003
   batch_size: 64
   gamma: 0.99
   n_steps: 128
   seed: null
-  eval_interval: 256
+  eval_interval: 2000
   walkforward_runs: 3
   walkforward_adjustment_scenario: auto  # auto | extend_data | reduce_val_test | off
   walkforward_shortfall_policy: warn_and_continue  # warn_and_continue | abort
   walkforward_extend_days: 0
-  early_stop: 3
-  checkpoint_interval: 512
+  early_stop: 8
+  checkpoint_interval: 5000
   resume_from: null
 
 exploration:
