@@ -1,0 +1,20 @@
+OBS_COLUMNS = [
+    "logret_1",
+    "roll_mean_logret_20",
+    "roll_std_logret_20",
+    "hl_range",
+    "roll_mean_hl_range_20",
+    "roll_std_hl_range_20",
+    "vol_z_20",
+    "rsi_14",
+    "macd_12_26",
+    "macd_signal_9",
+    "bb_mid_20",
+    "bb_upper_20",
+    "bb_lower_20",
+    "cash_ratio",
+    "position_ratio",
+    "unrealized_pnl_ratio",
+    "last_action",
+]
+ACTION_RANGE = (0.0, 1.0)
