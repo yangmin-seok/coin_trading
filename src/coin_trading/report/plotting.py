@@ -7,26 +7,41 @@ from typing import Any
 import pandas as pd
 
 
-def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title: str) -> str:
+def render_multi_line_svg(
+    df: pd.DataFrame,
+    primary_series: list[tuple[str, str]],
+    secondary_series: list[tuple[str, str]],
+    title: str,
+) -> str:
     width, height = 900, 340
     pad_l, pad_r, pad_t, pad_b = 64, 24, 28, 52
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
-    y_data = {
-        name: [float(v) for v in df.get(name, pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
-        for name, _ in series
-    }
-    all_vals = [v for vals in y_data.values() for v in vals] or [0.0]
-    y_min, y_max = min(all_vals), max(all_vals)
-    if y_max == y_min:
-        y_max = y_min + 1.0
+    def _series_values(name: str) -> list[float]:
+        return [float(v) for v in df.get(name, pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
 
-    def _y_scale(v: float) -> float:
-        ratio = (v - y_min) / (y_max - y_min)
+    primary_data = {name: _series_values(name) for name, _ in primary_series}
+    secondary_data = {name: _series_values(name) for name, _ in secondary_series}
+
+    primary_vals = [v for vals in primary_data.values() for v in vals] or [0.0]
+    secondary_vals = [v for vals in secondary_data.values() for v in vals] or [0.0]
+
+    left_min, left_max = min(primary_vals), max(primary_vals)
+    right_min, right_max = min(secondary_vals), max(secondary_vals)
+    if left_max == left_min:
+        left_max = left_min + 1.0
+    if right_max == right_min:
+        right_max = right_min + 1.0
+
+    def _y_scale(v: float, min_v: float, max_v: float) -> float:
+        ratio = (v - min_v) / (max_v - min_v)
         return pad_t + (1 - ratio) * chart_h
 
-    scaled = {name: [_y_scale(v) for v in vals] for name, vals in y_data.items()}
+    primary_scaled = {name: [_y_scale(v, left_min, left_max) for v in vals] for name, vals in primary_data.items()}
+    secondary_scaled = {
+        name: [_y_scale(v, right_min, right_max) for v in vals] for name, vals in secondary_data.items()
+    }
 
     def _line(vals: list[float], color: str) -> str:
         if not vals:
@@ -49,12 +64,16 @@ def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title
     for i in range(y_ticks):
         ratio = i / (y_ticks - 1)
         yy = pad_t + ratio * chart_h
-        y_value = y_max - ratio * (y_max - y_min)
+        y_left = left_max - ratio * (left_max - left_min)
+        y_right = right_max - ratio * (right_max - right_min)
         grid_parts.append(
             f"<line x1='{pad_l}' y1='{yy:.2f}' x2='{pad_l + chart_w}' y2='{yy:.2f}' stroke='#e6e6e6' stroke-width='1'/>"
         )
         y_label_parts.append(
-            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{y_value:.4g}</text>"
+            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{y_left:.4g}</text>"
+        )
+        y_label_parts.append(
+            f"<text x='{pad_l + chart_w + 8}' y='{yy + 4:.2f}' text-anchor='start' font-size='11' fill='#666'>{y_right:.4g}</text>"
         )
 
     for i in range(x_ticks):
@@ -70,21 +89,29 @@ def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title
 
     axes = (
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + chart_h}' stroke='#999'/>"
+        f"<line x1='{pad_l + chart_w}' y1='{pad_t}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
 
     legend = []
-    for i, (name, color) in enumerate(series):
-        legend.append(f"<text x='{70 + i * 130}' y='18' font-size='12' fill='{color}'>{name}</text>")
+    legend_x = 70
+    for name, color in primary_series:
+        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{color}'>[L] {name}</text>")
+        legend_x += 145
+    for name, color in secondary_series:
+        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{color}'>[R] {name}</text>")
+        legend_x += 165
 
     labels = (
         f"<text x='{pad_l + chart_w / 2:.2f}' y='{height-10}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
-        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value</text>"
+        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value [L]</text>"
+        f"<text x='{pad_l + chart_w + 36}' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value [R]</text>"
         f"<text x='{pad_l}' y='{pad_t - 8}' font-size='12' fill='#222'>{title}</text>"
         + "".join(legend)
     )
 
-    lines = "".join(_line(scaled[name], color) for name, color in series)
+    lines = "".join(_line(primary_scaled[name], color) for name, color in primary_series)
+    lines += "".join(_line(secondary_scaled[name], color) for name, color in secondary_series)
 
     return (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
@@ -108,15 +135,33 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: P
         for h in history
     ]
     frame = pd.DataFrame(rows)
+    plot_frame = pd.DataFrame(
+        [
+            {
+                "val_sharpe": h["val"].get("sharpe", 0.0),
+                "val_final_equity": h["val"].get("final_equity", 0.0),
+                "val_pnl": h["val"].get("pnl", 0.0),
+                "val_turnover": h["val"].get("turnover", 0.0),
+                "val_total_cost": h["val"].get("total_cost", 0.0),
+                "val_cost_pnl_ratio": h["val"].get("cost_pnl_ratio", 0.0),
+            }
+            for h in history
+        ]
+    )
     reports_dir.mkdir(parents=True, exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(reports_dir / "learning_curve.csv", index=False)
     (reports_dir / "learning_curve.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     (plots_dir / "learning_curve.svg").write_text(
         render_multi_line_svg(
-            frame,
-            series=[("val_sharpe", "#1f77b4"), ("val_final_equity", "#2ca02c")],
-            title="Validation Sharpe / Final Equity",
+            plot_frame,
+            primary_series=[("val_final_equity", "#2ca02c"), ("val_pnl", "#9467bd"), ("val_sharpe", "#1f77b4")],
+            secondary_series=[
+                ("val_turnover", "#ff7f0e"),
+                ("val_total_cost", "#d62728"),
+                ("val_cost_pnl_ratio", "#8c564b"),
+            ],
+            title="Validation Metrics Learning Curve",
         ),
         encoding="utf-8",
     )
