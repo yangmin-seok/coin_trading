@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from src.coin_trading.pipelines.train_flow import orchestrator
@@ -80,8 +81,8 @@ def test_walkforward_shortfall_reason_recorded(tmp_path: Path, monkeypatch: pyte
 
     monkeypatch.setattr(
         orchestrator,
-        "build_walkforward_splits",
-        lambda _candles_df, split, target_runs: [split],
+        "plan_walkforward_splits",
+        lambda _candles_df, split, target_runs, min_folds=3: {"splits": [split]},
     )
     monkeypatch.setattr(
         orchestrator,
@@ -95,8 +96,47 @@ def test_walkforward_shortfall_reason_recorded(tmp_path: Path, monkeypatch: pyte
     model_summary = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
 
     assert model_summary["walkforward_requested"] > model_summary["walkforward_runs"]
+    assert model_summary["walkforward_coverage_check"]["next_fold_required_test_end"] is not None
     assert model_summary["walkforward_shortfall"] is not None
     assert model_summary["walkforward_shortfall"]["reason"] == "insufficient_data_coverage_for_requested_walkforward"
+
+
+def test_walkforward_split_reduction_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta):
+    monkeypatch.chdir(tmp_path)
+    start = pd.Timestamp("2022-01-01", tz="UTC")
+    end = pd.Timestamp("2026-03-31", tz="UTC")
+    open_times = pd.date_range(start=start, end=end, freq="1D")
+    candles_df = pd.DataFrame(
+        {
+            "open_time": (open_times.view("int64") // 1_000_000).astype(int),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1.0,
+            "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
+        }
+    )
+    monkeypatch.setattr(orchestrator, "ensure_training_candles", lambda _cfg: (candles_df, False, False))
+    monkeypatch.setattr(
+        orchestrator,
+        "plan_walkforward_splits",
+        lambda _candles_df, split, target_runs, min_folds=3: {"splits": [split] * target_runs},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "train_sb3",
+        lambda *_args, **_kwargs: {"enabled": False, "reason": "insufficient_split_rows"},
+    )
+
+    orchestrator.run()
+
+    run_dir = tmp_path / "runs" / fixed_run_id
+    model_summary = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
+
+    assert model_summary["walkforward_coverage_check"]["satisfied"] is False
+    assert model_summary["walkforward_coverage_adjustment"] is not None
+    assert model_summary["walkforward_coverage_adjustment"]["action"] == "split_reduction"
 
 
 def test_train_module_run_returns_run_id_without_type_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
