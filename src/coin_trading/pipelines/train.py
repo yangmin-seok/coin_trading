@@ -11,11 +11,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:  # pragma: no cover
-    plt = None
-
+from src.coin_trading.agents.baselines import BuyAndHold, MACrossover, RandomPolicy
 from src.coin_trading.agents.sb3_env import GymTradingEnv
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.config.schema import AppConfig
@@ -515,22 +511,7 @@ def _build_sb3_algo(algo_name: str, env: GymTradingEnv, cfg: AppConfig):
     raise ValueError(f"unsupported algo: {algo_name}")
 
 
-def _rollout_model(
-    model: Any,
-    candles_df: pd.DataFrame,
-    features_df: pd.DataFrame,
-    cfg: AppConfig,
-    artifacts_dir: Path | None = None,
-) -> tuple[dict[str, Any], pd.DataFrame]:
-    eval_env = GymTradingEnv(candles_df, features_df, ExecutionModel(), seed=cfg.seed)
-    obs, _ = eval_env.reset(seed=cfg.seed)
-    done = False
-    while not done:
-        action, _ = model.predict(obs, deterministic=True)
-        obs, _, terminated, truncated, _ = eval_env.step(action)
-        done = terminated or truncated
-
-    trace = eval_env.env.recorder.to_dataframe()
+def _compute_trace_metrics(trace: pd.DataFrame) -> dict[str, Any]:
     if trace.empty:
         return {
             "steps": 0,
@@ -538,27 +519,158 @@ def _rollout_model(
             "sharpe": 0.0,
             "max_drawdown": 0.0,
             "turnover": 0.0,
+            "tail_risk": 0.0,
             "win_rate": 0.0,
-        }, trace
+        }
 
     reward = trace["reward"].astype(float)
     sharpe = 0.0
     if reward.std(ddof=0) > 0:
         sharpe = float((reward.mean() / reward.std(ddof=0)) * np.sqrt(252.0))
-    metrics = {
+
+    tail_risk = float(np.percentile(reward, 5)) if len(reward) > 0 else 0.0
+    return {
         "steps": int(len(trace)),
         "final_equity": float(trace["equity"].iloc[-1]),
         "sharpe": sharpe,
         "max_drawdown": float(trace["drawdown"].max()) if "drawdown" in trace else 0.0,
         "turnover": float(trace["filled_qty"].abs().mean()) if "filled_qty" in trace else 0.0,
+        "tail_risk": tail_risk,
         "win_rate": float((reward > 0).mean()),
         "reward_abs_max": float(reward.abs().max()),
         "reward_std": float(reward.std(ddof=0)),
     }
+
+
+def _run_policy_rollout(
+    candles_df: pd.DataFrame,
+    features_df: pd.DataFrame,
+    execution_model: ExecutionModel,
+    action_fn,
+    seed: int,
+    artifacts_dir: Path | None = None,
+) -> dict[str, Any]:
+    eval_env = GymTradingEnv(candles_df, features_df, execution_model, seed=seed)
+    obs, _ = eval_env.reset(seed=seed)
+    done = False
+    while not done:
+        action = float(action_fn(obs, eval_env.env))
+        obs, _, terminated, truncated, _ = eval_env.step(np.array([action], dtype=np.float32))
+        done = terminated or truncated
+
+    trace = eval_env.env.recorder.to_dataframe()
+    metrics = _compute_trace_metrics(trace)
     if artifacts_dir is not None:
         files = eval_env.env.recorder.write_trace_artifacts(artifacts_dir)
         metrics["artifacts"] = {k: str(v) for k, v in files.items()}
     return metrics, trace
+
+
+def _rollout_model(
+    model: Any,
+    candles_df: pd.DataFrame,
+    features_df: pd.DataFrame,
+    cfg: AppConfig,
+    execution_model: ExecutionModel,
+    artifacts_dir: Path | None = None,
+) -> dict[str, Any]:
+    return _run_policy_rollout(
+        candles_df,
+        features_df,
+        execution_model,
+        action_fn=lambda obs, _env: model.predict(obs, deterministic=True)[0],
+        seed=cfg.seed,
+        artifacts_dir=artifacts_dir,
+    )
+
+
+def _rollout_baseline(
+    policy: Any,
+    candles_df: pd.DataFrame,
+    features_df: pd.DataFrame,
+    cfg: AppConfig,
+    execution_model: ExecutionModel,
+) -> dict[str, Any]:
+    policy.reset()
+    return _run_policy_rollout(
+        candles_df,
+        features_df,
+        execution_model,
+        action_fn=lambda obs, env: policy.act(obs, {"close": float(env.candles.loc[env.t, "close"])}),
+        seed=cfg.seed,
+    )
+
+
+def _evaluate_baselines_and_sensitivity(
+    model: Any,
+    val_df: pd.DataFrame,
+    val_features: pd.DataFrame,
+    cfg: AppConfig,
+    run_dir: Path,
+) -> dict[str, Any]:
+    scenarios = [
+        {
+            "name": "base",
+            "fee_rate": float(cfg.execution.fee_rate),
+            "slippage_bps": float(cfg.execution.slippage_bps),
+            "max_step_change": float(cfg.execution.max_step_change),
+            "min_delta": float(cfg.execution.min_delta),
+        },
+        {
+            "name": "cost_0.04pct",
+            "fee_rate": 0.0004,
+            "slippage_bps": 4.0,
+            "max_step_change": float(cfg.execution.max_step_change),
+            "min_delta": float(cfg.execution.min_delta),
+        },
+        {
+            "name": "cost_0.08pct",
+            "fee_rate": 0.0008,
+            "slippage_bps": 8.0,
+            "max_step_change": float(cfg.execution.max_step_change),
+            "min_delta": float(cfg.execution.min_delta),
+        },
+    ]
+
+    baseline_policies = {
+        "buy_and_hold": BuyAndHold(),
+        "ma_crossover": MACrossover(),
+        "random": RandomPolicy(seed=cfg.seed),
+    }
+
+    output: dict[str, Any] = {"scenarios": {}}
+    for scenario in scenarios:
+        exec_model = ExecutionModel(
+            fee_rate=scenario["fee_rate"],
+            slippage_bps=scenario["slippage_bps"],
+            max_step_change=scenario["max_step_change"],
+            min_delta=scenario["min_delta"],
+        )
+        rl_metrics = _rollout_model(model, val_df, val_features, cfg, exec_model)
+        baselines = {
+            name: _rollout_baseline(policy, val_df, val_features, cfg, exec_model)
+            for name, policy in baseline_policies.items()
+        }
+        output["scenarios"][scenario["name"]] = {
+            "cost": scenario,
+            "rl": rl_metrics,
+            "baselines": baselines,
+        }
+
+    base = output["scenarios"]["base"]
+    rl_equity = float(base["rl"]["final_equity"])
+    worse_than_all = all(rl_equity < float(m["final_equity"]) for m in base["baselines"].values())
+    output["rl_warning"] = (
+        {
+            "level": "warning",
+            "code": "RL_BASELINE_UNDERPERFORM",
+            "message": "RL policy underperforms Buy&Hold, MA crossover, and Random on the same window. Check reward/env design.",
+        }
+        if worse_than_all
+        else None
+    )
+    (run_dir / "baseline_sensitivity.json").write_text(json.dumps(output, indent=2), encoding="utf-8")
+    return output
 
 
 def _render_learning_curve_svg(history: list[dict[str, Any]], out_path: Path) -> None:
@@ -790,7 +902,13 @@ def _train_sb3(
     val_features = _apply_feature_scaler(val_features_raw, scaler)
     test_features = _apply_feature_scaler(test_features_raw, scaler) if not test_df.empty else pd.DataFrame()
 
-    train_env = GymTradingEnv(train_df, train_features, ExecutionModel(), seed=cfg.seed)
+    base_exec_model = ExecutionModel(
+        fee_rate=cfg.execution.fee_rate,
+        slippage_bps=cfg.execution.slippage_bps,
+        max_step_change=cfg.execution.max_step_change,
+        min_delta=cfg.execution.min_delta,
+    )
+    train_env = GymTradingEnv(train_df, train_features, base_exec_model, seed=cfg.seed)
     model = _build_sb3_algo(cfg.train.algo, train_env, cfg)
 
     from stable_baselines3.common.callbacks import BaseCallback
@@ -875,7 +993,7 @@ def _train_sb3(
         chunk = min(interval, total - trained)
         model.learn(total_timesteps=chunk, reset_num_timesteps=False, callback=callback)
         trained += chunk
-        val_metrics, _ = _rollout_model(model, val_df, val_features, cfg)
+        val_metrics = _rollout_model(model, val_df, val_features, cfg, base_exec_model)
         history.append({"timesteps": trained, "val": val_metrics})
 
         if val_metrics["sharpe"] > best_sharpe:
@@ -896,19 +1014,13 @@ def _train_sb3(
     best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    train_metrics, train_trace = _rollout_model(best_model, train_df, train_features, cfg, run_dir / "train_trace")
-    val_final, val_trace = _rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    if not test_df.empty:
-        test_metrics, test_trace = _rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace")
-    else:
-        test_metrics, test_trace = {"enabled": False}, pd.DataFrame()
-
-    split_traces = {"train": train_trace, "valid": val_trace, "test": test_trace}
-    split_equity_artifacts = create_split_equity_curves(run_dir, split_traces)
-    common_risk_artifacts = create_common_risk_plots(run_dir, split_traces)
-    overfit_warning = detect_overfit(train_metrics, test_metrics)
-    trade_stats_artifact = write_trade_stats_report(run_dir, test_trace if not test_trace.empty else val_trace, overfit_warning)
-    benchmark_artifact = create_benchmark_comparison(run_dir, test_df if not test_df.empty else val_df, cfg.seed)
+    val_final = _rollout_model(best_model, val_df, val_features, cfg, base_exec_model, run_dir / "val_trace")
+    test_metrics = (
+        _rollout_model(best_model, test_df, test_features, cfg, base_exec_model, run_dir / "test_trace")
+        if not test_df.empty
+        else {"enabled": False}
+    )
+    baseline_eval = _evaluate_baselines_and_sensitivity(best_model, val_df, val_features, cfg, run_dir)
 
     curve_rows = [
         {
@@ -948,6 +1060,7 @@ def _train_sb3(
         "val_metrics": val_final,
         "train_metrics": train_metrics,
         "test_metrics": test_metrics,
+        "baseline_comparison": baseline_eval,
         "artifacts": {
             "learning_curve_csv": "learning_curve.csv",
             "learning_curve_json": "learning_curve.json",
@@ -957,15 +1070,12 @@ def _train_sb3(
             "train_trace_dir": "train_trace",
             "val_trace_dir": "val_trace",
             "test_trace_dir": "test_trace",
-            "split_equity_curves": split_equity_artifacts,
-            **common_risk_artifacts,
-            "trade_stats_report": trade_stats_artifact,
-            "benchmark_comparison_png": benchmark_artifact,
+            "baseline_sensitivity": "baseline_sensitivity.json",
         },
         "overfit_warning": overfit_warning,
     }
     (run_dir / "evaluation_metrics.json").write_text(
-        json.dumps({"history": history, "train": train_metrics, "val": val_final, "test": test_metrics, "overfit_warning": overfit_warning}, indent=2),
+        json.dumps({"history": history, "val": val_final, "test": test_metrics, "baseline": baseline_eval}, indent=2),
         encoding="utf-8",
     )
     return summary
