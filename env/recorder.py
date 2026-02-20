@@ -80,10 +80,6 @@ class StepRecorder:
                 "<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>",
                 encoding="utf-8",
             )
-            action_position_path = out / "action_position.svg"
-            action_position_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
-            costs_path = out / "costs.svg"
-            costs_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
             reward_components_path = out / "reward_components_timeseries.png"
             _write_fallback_png(reward_components_path)
             return {
@@ -91,8 +87,6 @@ class StepRecorder:
                 "svg": reward_equity_path,
                 "reward_equity_svg": reward_equity_path,
                 "drawdown_turnover_svg": drawdown_turnover_path,
-                "action_position_svg": action_position_path,
-                "costs_svg": costs_path,
                 "reward_components_timeseries_png": reward_components_path,
             }
 
@@ -179,26 +173,6 @@ class StepRecorder:
             ),
             encoding="utf-8",
         )
-        action_position_path = out / "action_position.svg"
-        action_position_path.write_text(
-            render_multi_line_svg(
-                df,
-                primary_series=[("action_target_pos", "#ff7f0e"), ("action_effective_pos", "#17becf")],
-                secondary_series=[],
-                title="Target vs Effective Position",
-            ),
-            encoding="utf-8",
-        )
-        costs_path = out / "costs.svg"
-        costs_path.write_text(
-            render_multi_line_svg(
-                df,
-                primary_series=[("fee", "#8c564b"), ("slippage_cost", "#e377c2")],
-                secondary_series=[],
-                title="Trading Costs",
-            ),
-            encoding="utf-8",
-        )
         reward_components_path = out / "reward_components_timeseries.png"
         _render_reward_components_png(df, reward_components_path)
         return {
@@ -206,7 +180,5 @@ class StepRecorder:
             "svg": reward_equity_path,
             "reward_equity_svg": reward_equity_path,
             "drawdown_turnover_svg": drawdown_turnover_path,
-            "action_position_svg": action_position_path,
-            "costs_svg": costs_path,
             "reward_components_timeseries_png": reward_components_path,
         }

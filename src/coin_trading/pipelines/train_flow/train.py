@@ -48,6 +48,7 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
             gamma=cfg.train.gamma,
             n_steps=cfg.train.n_steps,
             seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
+            device=cfg.train.device,
             verbose=0,
         )
     if algo_name == "sac":
@@ -58,6 +59,7 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
             batch_size=cfg.train.batch_size,
             gamma=cfg.train.gamma,
             seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
+            device=cfg.train.device,
             verbose=0,
         )
     raise ValueError(f"unsupported algo: {algo_name}")
@@ -320,6 +322,7 @@ def _run_single_experiment(
             "learning_curve_csv": "reports/learning_curve.csv",
             "learning_curve_json": "reports/learning_curve.json",
             "learning_curve_svg": "plots/learning_curve.svg",
+            "learning_curve_summary_svg": "plots/learning_curve_summary.svg",
             "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
             "val_trace_dir": "reports/val_trace",
             "test_trace_dir": "reports/test_trace",
