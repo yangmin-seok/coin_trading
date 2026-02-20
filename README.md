@@ -10,7 +10,7 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 최근 코드 구조 기준으로, 실행은 저장소 루트가 아니라 아래 경로를 기준으로 잡아야 합니다.
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
+cd src/coin_trading
 ```
 
 이 프로젝트는 모듈 import가 상대 경로(`config/default.yaml`, `agents.*`, `data.*`)를 함께 사용하므로, 아래처럼 `PYTHONPATH=../..`를 주고 실행하는 방식을 권장합니다.
