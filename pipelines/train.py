@@ -7,9 +7,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from agents.baselines import VolTarget
 from config.loader import load_config
 from config.schema import AppConfig
 from data.io import write_candles_parquet
+from env.execution_model import ExecutionModel
+from env.trading_env import TradingEnv
 from features.definitions import FEATURE_COLUMNS
 from features.offline import compute_offline
 from pipelines.run_manager import (
@@ -142,6 +145,54 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
     }
 
 
+def run_training_probe(candles_df: pd.DataFrame, run_dir: Path) -> dict[str, Any]:
+    """Run 1-epoch baseline rollout and export reward/equity artifacts."""
+    if candles_df.empty:
+        return {"enabled": False, "reason": "no_data"}
+
+    features_df = compute_offline(candles_df)
+    env = TradingEnv(candles_df, features_df, ExecutionModel())
+    policy = VolTarget()
+    policy.reset()
+
+    total_reward = 0.0
+    steps = 0
+    done = False
+    env.reset()
+
+    max_steps = min(max(len(candles_df) - 1, 0), 1000)
+    while not done and steps < max_steps:
+        t = env.t
+        info_for_policy = {
+            "close": float(candles_df.loc[t, "close"]),
+            "logret_1": float(features_df.loc[t, "logret_1"]) if pd.notna(features_df.loc[t, "logret_1"]) else 0.0,
+        }
+        action = policy.act(obs=None, info=info_for_policy)
+        _, reward, done, _ = env.step(action)
+        total_reward += float(reward)
+        steps += 1
+
+    artifacts = env.recorder.write_trace_artifacts(run_dir / "train_probe")
+    mean_reward = total_reward / steps if steps > 0 else 0.0
+    final_equity = float(env.state.equity)
+
+    summary = {
+        "enabled": True,
+        "epochs": 1,
+        "model": "VolTarget-baseline",
+        "steps": int(steps),
+        "total_reward": float(total_reward),
+        "mean_reward": float(mean_reward),
+        "final_equity": final_equity,
+        "artifacts": {
+            "trace_csv": str(artifacts["csv"].relative_to(run_dir)),
+            "reward_equity_svg": str(artifacts["svg"].relative_to(run_dir)),
+        },
+    }
+    (run_dir / "train_probe_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return summary
+
+
 def run() -> str:
     cfg = load_config()
     run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
@@ -153,6 +204,7 @@ def run() -> str:
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset_for_training(candles_df, cfg)
+    probe_summary = run_training_probe(candles_df, run_dir)
 
     write_data_manifest(
         run_dir,
@@ -184,6 +236,9 @@ def run() -> str:
             "status": "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data",
             "missing": [] if dataset_summary["rows"] > 0 else ["data/processed parquet dataset"],
             "split_rows": {k: v["rows"] for k, v in dataset_summary["splits"].items()},
+            "epochs": probe_summary.get("epochs", 0),
+            "model": probe_summary.get("model", "none"),
+            "probe": probe_summary,
         },
     )
     (run_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")

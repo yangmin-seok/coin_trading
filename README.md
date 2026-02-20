@@ -65,8 +65,9 @@ demo-btcusdt-5m-3-20260101-010203
 - `meta.json`: 실행 메타 정보(시간/git 등)
 - `data_manifest.json`: 데이터/커버리지/부트스트랩 여부
 - `feature_manifest.json`: 피처 컬럼/윈도우/구현 해시
-- `train_manifest.json`: 학습 준비 상태
+- `train_manifest.json`: 학습 준비 상태 + probe epochs/model 요약
 - `dataset_summary.json`: split별 row 및 피처 NaN 요약
+- `train_probe_summary.json`: reward/equity probe 요약
 
 `data_manifest.json`에서 아래 키를 확인하세요.
 
@@ -76,6 +77,23 @@ demo-btcusdt-5m-3-20260101-010203
 - `bootstrap_generated: false` → 기존 `data/processed` 데이터 사용됨
 
 ---
+
+
+## 3-1) 자주 묻는 질문 (train)
+
+- **Q. train epoch은 어느정도야?**  
+  현재 `pipelines.train`은 딥러닝 학습 루프가 아니라, **1 epoch 성격의 baseline probe 롤아웃**을 수행합니다.
+  `train_manifest.json`의 `epochs`가 `1`로 기록됩니다.
+
+- **Q. 모델은 어떤 걸 사용해?**  
+  현재 probe 모델은 `VolTarget-baseline`입니다. (`agents.baselines.VolTarget`)
+  실제 SB3 PPO/SAC 학습 파이프라인은 아직 별도 고도화가 필요합니다.
+
+- **Q. train이 잘 되는지 reward를 볼 수 있어?**  
+  가능합니다. train 실행 시 `runs/<run_id>/train_probe/` 아래에:
+  - `trace.csv` (step, signal=buy/hold/sell, reward, equity 등)
+  - `reward_equity.svg` (reward/equity 추이)
+  가 자동 생성됩니다.
 
 ## 4) 설정 방법
 
@@ -90,13 +108,13 @@ demo-btcusdt-5m-3-20260101-010203
 - `features.version`, `features.windows.*`
 - `split.train/val/test`: 데이터 분할 기준 날짜
 
-환경변수 오버라이드는 `APP__` prefix를 사용합니다.
+환경변수 오버라이드는 `COIN_TRADING__` prefix를 사용합니다.
 
 예시:
 
 ```bash
-export APP__SYMBOL=ETHUSDT
-export APP__INTERVAL=1m
+export COIN_TRADING__SYMBOL=ETHUSDT
+export COIN_TRADING__INTERVAL=1m
 python -m pipelines.train
 ```
 

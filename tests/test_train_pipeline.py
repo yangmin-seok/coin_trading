@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from config.loader import load_config
-from pipelines.train import ensure_training_candles, run, summarize_dataset_for_training
+from pipelines.train import ensure_training_candles, run, run_training_probe, summarize_dataset_for_training
 
 
 def test_summarize_dataset_for_training(sample_candles):
@@ -26,13 +27,28 @@ def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     assert persisted in {True, False}
 
 
+def test_training_probe_writes_reward_artifacts(sample_candles, tmp_path: Path):
+    summary = run_training_probe(sample_candles, tmp_path)
+    assert summary["enabled"] is True
+    assert summary["epochs"] == 1
+    assert summary["model"] == "VolTarget-baseline"
+
+    trace_path = tmp_path / summary["artifacts"]["trace_csv"]
+    svg_path = tmp_path / summary["artifacts"]["reward_equity_svg"]
+    assert trace_path.exists()
+    assert svg_path.exists()
+
+
 def test_train_run_creates_ready_manifest_with_bootstrap():
     run_id = run()
     run_dir = Path("runs") / run_id
     assert run_dir.exists()
 
-    train_manifest = (run_dir / "train_manifest.json").read_text(encoding="utf-8")
-    assert '"status": "ready"' in train_manifest
+    train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
+    assert train_manifest["status"] == "ready"
+    assert train_manifest["epochs"] == 1
+    assert train_manifest["model"] == "VolTarget-baseline"
+    assert "probe" in train_manifest
 
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
