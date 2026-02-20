@@ -33,11 +33,42 @@ def seed_everything(seed: int) -> None:
         pass
 
 
+def _resolve_training_device(requested_device: str) -> str:
+    req = str(requested_device or "auto").strip().lower()
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+        cuda_count = int(torch.cuda.device_count()) if cuda_available else 0
+    except Exception:
+        cuda_available = False
+        cuda_count = 0
+
+    if req in {"auto", ""}:
+        return "cuda:0" if cuda_available and cuda_count > 0 else "cpu"
+
+    if req.startswith("cuda"):
+        if not (cuda_available and cuda_count > 0):
+            print(f"[train] requested device='{requested_device}' but CUDA is unavailable; fallback to cpu")
+            return "cpu"
+        if ":" in req:
+            try:
+                idx = int(req.split(":", 1)[1])
+            except ValueError:
+                idx = 0
+            if idx >= cuda_count:
+                print(f"[train] requested device='{requested_device}' but only {cuda_count} CUDA device(s) detected; fallback to cuda:0")
+                return "cuda:0"
+    return requested_device
+
+
 def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
     try:
         from stable_baselines3 import PPO, SAC
     except ImportError as exc:
         raise RuntimeError("stable-baselines3/gymnasium is required for train mode. Please install project dependencies.") from exc
+
+    resolved_device = _resolve_training_device(cfg.train.device)
 
     if algo_name == "ppo":
         return PPO(
@@ -48,7 +79,7 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
             gamma=cfg.train.gamma,
             n_steps=cfg.train.n_steps,
             seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
-            device=cfg.train.device,
+            device=resolved_device,
             verbose=0,
         )
     if algo_name == "sac":
@@ -59,7 +90,7 @@ def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
             batch_size=cfg.train.batch_size,
             gamma=cfg.train.gamma,
             seed=cfg.train.seed if cfg.train.seed is not None else cfg.seed,
-            device=cfg.train.device,
+            device=resolved_device,
             verbose=0,
         )
     raise ValueError(f"unsupported algo: {algo_name}")
@@ -310,6 +341,7 @@ def _run_single_experiment(
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
+        "device": _resolve_training_device(cfg.train.device),
         "reward_type": cfg.reward.type,
         "steps": int(trained),
         "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
