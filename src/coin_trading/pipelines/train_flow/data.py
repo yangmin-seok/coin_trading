@@ -100,6 +100,91 @@ def split_by_date(candles_df: pd.DataFrame, split_range: tuple[str, str]) -> pd.
     return candles_df.loc[mask].reset_index(drop=True)
 
 
+def validate_split_policy(
+    split: dict[str, tuple[str, str]],
+    candles_df: pd.DataFrame,
+    min_days: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    min_days = min_days or {"train": 60, "val": 14, "test": 14}
+    required = ("train", "val", "test")
+    for key in required:
+        if key not in split:
+            raise ValueError(f"missing split: {key}")
+
+    ts_split = {
+        key: (pd.Timestamp(split[key][0], tz="UTC"), pd.Timestamp(split[key][1], tz="UTC"))
+        for key in required
+    }
+    for key, (start_ts, end_ts) in ts_split.items():
+        if start_ts > end_ts:
+            raise ValueError(f"invalid split order for {key}: start must be <= end")
+        period_days = int((end_ts - start_ts).days) + 1
+        if period_days < int(min_days.get(key, 1)):
+            raise ValueError(f"{key} split is shorter than minimum period: {period_days} < {min_days[key]}")
+
+    if not (ts_split["train"][1] < ts_split["val"][0] and ts_split["val"][1] < ts_split["test"][0]):
+        raise ValueError("split overlap is not allowed and ranges must be strictly ordered train < val < test")
+
+    if not candles_df.empty:
+        data_start = pd.to_datetime(candles_df["open_time"].min(), unit="ms", utc=True).normalize()
+        data_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True).normalize()
+        for key, (start_ts, _) in ts_split.items():
+            if start_ts < data_start or start_ts > data_end:
+                raise ValueError(
+                    f"{key} split start must be inside data coverage: data={data_start.date()}..{data_end.date()}"
+                )
+
+    return {
+        "split": {k: [v[0], v[1]] for k, v in split.items()},
+        "min_days": {k: int(v) for k, v in min_days.items()},
+        "ordered_non_overlapping": True,
+    }
+
+
+def build_walkforward_splits(
+    candles_df: pd.DataFrame,
+    split: dict[str, tuple[str, str]],
+    target_runs: int,
+    min_days: dict[str, int] | None = None,
+) -> list[dict[str, tuple[str, str]]]:
+    if target_runs < 1:
+        raise ValueError("target_runs must be >= 1")
+
+    validate_split_policy(split, candles_df, min_days=min_days)
+    base_train_start = pd.Timestamp(split["train"][0], tz="UTC")
+    train_end = pd.Timestamp(split["train"][1], tz="UTC")
+    val_start = pd.Timestamp(split["val"][0], tz="UTC")
+    val_end = pd.Timestamp(split["val"][1], tz="UTC")
+    test_start = pd.Timestamp(split["test"][0], tz="UTC")
+    test_end = pd.Timestamp(split["test"][1], tz="UTC")
+
+    val_days = (val_end - val_start).days + 1
+    test_days = (test_end - test_start).days + 1
+    step_days = max(1, val_days)
+
+    if candles_df.empty:
+        data_end = test_end + pd.Timedelta(days=step_days * (target_runs - 1))
+    else:
+        data_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True).normalize()
+
+    splits: list[dict[str, tuple[str, str]]] = []
+    for i in range(max(target_runs, 1)):
+        shift = pd.Timedelta(days=i * step_days)
+        run_split = {
+            "train": (base_train_start.strftime("%Y-%m-%d"), (train_end + shift).strftime("%Y-%m-%d")),
+            "val": ((val_start + shift).strftime("%Y-%m-%d"), (val_end + shift).strftime("%Y-%m-%d")),
+            "test": ((test_start + shift).strftime("%Y-%m-%d"), (test_end + shift).strftime("%Y-%m-%d")),
+        }
+        run_test_end = pd.Timestamp(run_split["test"][1], tz="UTC")
+        if run_test_end > data_end:
+            break
+        splits.append(run_split)
+
+    if not splits:
+        splits.append(split)
+    return splits
+
+
 def summarize_dataset(candles_df: pd.DataFrame, cfg: AppConfig) -> dict[str, Any]:
     if candles_df.empty:
         return {

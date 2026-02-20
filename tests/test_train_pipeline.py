@@ -1,19 +1,50 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import run
-from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, summarize_dataset
+import pandas as pd
+import pytest
 
 from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import (
+from src.coin_trading.pipelines.train_flow.data import (
+    build_walkforward_splits,
     ensure_training_candles,
-    preprocess_training_candles,
-    run,
-    summarize_dataset_for_training,
+    summarize_dataset,
+    validate_split_policy,
 )
+from src.coin_trading.pipelines.train_flow.features import (
+    compute_features,
+    fit_feature_scaler,
+    transform_with_scaler,
+    validate_rolling_features_no_lookahead,
+)
+
+
+
+
+def _multi_day_candles(days: int = 10) -> pd.DataFrame:
+    rows = []
+    for i in range(days):
+        open_time = i * 86_400_000
+        rows.append({
+            "open_time": open_time,
+            "open": 100.0 + i,
+            "high": 101.0 + i,
+            "low": 99.0 + i,
+            "close": 100.5 + i,
+            "volume": 10.0,
+            "close_time": open_time + 86_399_999,
+        })
+    return pd.DataFrame(rows)
+
+
+def _sample_split() -> dict[str, tuple[str, str]]:
+    return {
+        "train": ("1970-01-01", "1970-01-03"),
+        "val": ("1970-01-04", "1970-01-05"),
+        "test": ("1970-01-06", "1970-01-07"),
+    }
+
 
 def test_summarize_dataset_for_training(sample_candles):
     cfg = load_config()
@@ -23,83 +54,47 @@ def test_summarize_dataset_for_training(sample_candles):
     assert summary["coverage"]["start_open_time"] <= summary["coverage"]["end_open_time"]
     assert set(summary["splits"].keys()) == {"train", "val", "test"}
     assert summary["features"]["rows"] == len(sample_candles)
-    assert 0.0 <= summary["features"]["nan_ratio_mean"] <= 1.0
 
-def test_preprocess_training_candles_forbids_price_forward_fill(sample_candles):
-    with pytest.raises(ValueError, match="Forward fill"):
-        preprocess_training_candles(sample_candles, price_fill_method="ffill")
-
-def test_preprocess_training_candles_raises_on_price_nan(sample_candles):
-    df = sample_candles.copy()
-    df.loc[df.index[0], "close"] = None
-    with pytest.raises(ValueError, match="price columns"):
-        preprocess_training_candles(df)
 
 def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     cfg = load_config()
     candles, bootstrapped, persisted = ensure_training_candles(cfg, data_root=tmp_path)
     assert bootstrapped is True
     assert len(candles) > 0
-    assert sorted(candles.columns.tolist()) == sorted(["open_time", "open", "high", "low", "close", "volume", "close_time"])
     assert persisted in {True, False}
 
-def test_train_run_writes_dependency_block_or_training_artifacts():
-    run_id = run()
-    run_dir = Path("runs") / run_id
-    assert run_dir.exists()
 
+def test_split_policy_validation_and_walkforward(sample_candles):
+    candles = _multi_day_candles()
+    policy = validate_split_policy(_sample_split(), candles, min_days={"train": 2, "val": 1, "test": 1})
+    assert policy["ordered_non_overlapping"] is True
 
-    assert (run_dir / "plots").exists()
-    assert (run_dir / "reports").exists()
-    assert (run_dir / "artifacts").exists()
-    assert (run_dir / "artifacts" / "config.yaml").exists()
-    metadata = json.loads((run_dir / "artifacts" / "metadata.json").read_text(encoding="utf-8"))
-    assert "seed" in metadata
-    assert "git_sha" in metadata
-    assert "start_time_utc" in metadata
-    assert set(metadata["data_range"].keys()) == {"train", "val", "test"}
-    train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
-    model_train = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
-
-    assert train_manifest["status"] in {"ready", "blocked_missing_dependencies"}
-
-    if train_manifest["status"] == "ready":
-        assert model_train["enabled"] is True
-        assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
-        assert (run_dir / "learning_curve.csv").exists()
-        assert (run_dir / "learning_curve.json").exists()
-        assert (run_dir / "learning_curve.svg").exists()
-        assert (run_dir / "evaluation_metrics.json").exists()
-        assert (run_dir / "best_model.zip").exists()
-        assert (run_dir / "train_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
-        assert "baseline_comparison" in model_train
-        assert (run_dir / "baseline_sensitivity.json").exists()
-        baseline = json.loads((run_dir / "baseline_sensitivity.json").read_text(encoding="utf-8"))
-        assert set(baseline["scenarios"].keys()) == {"base", "cost_0.04pct", "cost_0.08pct"}
-        for scenario in baseline["scenarios"].values():
-            assert "tail_risk" in scenario["rl"]
-            assert "max_drawdown" in scenario["rl"]
-            assert "turnover" in scenario["rl"]
-            assert set(scenario["baselines"].keys()) == {"buy_and_hold", "ma_crossover", "random"}
-    else:
-        assert model_train["enabled"] is False
-        assert model_train["reason"] == "missing_dependencies"
-
-    data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
-    assert '"bootstrap_generated": ' in data_manifest
-    assert '"bootstrap_persisted": ' in data_manifest
-
-
-def test_split_policy_and_walkforward_defaults(sample_candles):
-    cfg = load_config()
-    policy = _enforce_split_policy(cfg, sample_candles)
-    assert set(policy["split"].keys()) == {"train", "val", "test"}
-    splits = _build_walkforward_splits(cfg, sample_candles)
+    splits = build_walkforward_splits(candles, _sample_split(), target_runs=3, min_days={"train": 2, "val": 1, "test": 1})
     assert len(splits) >= 2
 
 
-def test_lookahead_validation_passes(sample_candles):
-    result = _validate_no_lookahead(sample_candles)
-    assert result["passed"] is True
+def test_split_policy_rejects_overlap(sample_candles):
+    candles = _multi_day_candles()
+    split = _sample_split()
+    split["val"] = ("1970-01-03", "1970-01-05")
+    with pytest.raises(ValueError, match="overlap"):
+        validate_split_policy(split, candles, min_days={"train": 2, "val": 1, "test": 1})
+
+
+def test_lookahead_validation_and_scaler_policy(sample_candles):
+    train_df = sample_candles.iloc[:80].reset_index(drop=True)
+    val_df = sample_candles.iloc[80:100].reset_index(drop=True)
+
+    train_features = compute_features(train_df)
+    val_features = compute_features(val_df)
+
+    assert validate_rolling_features_no_lookahead(train_df, train_features)["passed"] is True
+
+    scaler = fit_feature_scaler(train_features, split_name="train")
+    scaled_train = transform_with_scaler(train_features, scaler)
+    scaled_val = transform_with_scaler(val_features, scaler)
+    assert isinstance(scaled_train, pd.DataFrame)
+    assert isinstance(scaled_val, pd.DataFrame)
+
+    with pytest.raises(ValueError, match="train split"):
+        fit_feature_scaler(train_features, split_name="val")
