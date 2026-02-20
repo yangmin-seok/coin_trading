@@ -21,6 +21,17 @@ reward:
   dsr_scale: 1.0
   downside_beta: 0.05
   lambda_downside: 0.5
+  selection_turnover_penalty_weight: 1.0
+  selection_inactivity_penalty_weight: 1.0
+  selection_drawdown_penalty_weight: 1.0
+  selection_turnover_target: 0.25
+  selection_inactivity_target: 0.7
+  penalty_sweep_enabled: false
+  penalty_sweep_mode: grid
+  penalty_sweep_trials: 12
+  turnover_penalty_grid: [0.5, 1.0, 1.5]
+  inactivity_penalty_grid: [0.5, 1.0, 1.5]
+  drawdown_penalty_grid: [0.5, 1.0, 1.5]
 execution:
   fee_rate: 0.001
   slippage_bps: 2.0
@@ -52,6 +63,9 @@ train:
   seed: null
   eval_interval: 256
   walkforward_runs: 3
+  walkforward_adjustment_scenario: auto  # auto | extend_data | reduce_val_test | off
+  walkforward_shortfall_policy: warn_and_continue  # warn_and_continue | abort
+  walkforward_extend_days: 0
   early_stop: 3
   checkpoint_interval: 512
   resume_from: null

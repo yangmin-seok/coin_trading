@@ -27,10 +27,21 @@
           "turnover_total": 1775.2974978143218,
           "fee_slippage_total": 212.3642213179145,
           "cost_per_turnover": 0.11962176569243702
+        },
+        "reward_contributions": {
+          "reward_total": -0.0500600133971566,
+          "pnl_total": -0.02138861731946608,
+          "turnover_cost_total": 0.017821751734567334,
+          "penalty_total": 0.01084964434312319,
+          "penalty_drawdown_total": 0.0,
+          "penalty_inactivity_total": 0.0,
+          "penalty_under_utilization_total": 0.0,
+          "penalty_downside_total": 0.01084964434312319,
+          "reconstruction_error": 0.0
         }
       },
       "selection": {
-        "score": -172.58214898422025,
+        "score": -69.01442689265876,
         "sharpe": -36.10704944276252,
         "final_equity": 9850.135083682082,
         "max_drawdown": 0.01731873322057642,
@@ -39,9 +50,17 @@
         "no_trade_ratio": 0.025423728813559324,
         "equity_alpha": -0.015768517515537903,
         "turnover_cap": 0.25,
-        "turnover_penalty": 147.94894049273915,
+        "inactivity_target": 0.7,
+        "turnover_penalty": 14.794894049273914,
+        "drawdown_penalty": 0.01731873322057642,
         "cost_penalty": 0.021559523754117956,
-        "inactivity_penalty": 0.0
+        "inactivity_penalty": 0.0,
+        "weights": {
+          "turnover": 1.0,
+          "inactivity": 1.0,
+          "drawdown": 1.0,
+          "cost": 1.2
+        }
       }
     },
     {
@@ -71,10 +90,21 @@
           "turnover_total": 1298.2663521700676,
           "fee_slippage_total": 155.28625955672598,
           "cost_per_turnover": 0.11961047846396324
+        },
+        "reward_contributions": {
+          "reward_total": -0.0370219223474509,
+          "pnl_total": -0.015632977987565848,
+          "turnover_cost_total": 0.013026176576788973,
+          "penalty_total": 0.008362767783096083,
+          "penalty_drawdown_total": 0.0,
+          "penalty_inactivity_total": 0.0,
+          "penalty_under_utilization_total": 0.0,
+          "penalty_downside_total": 0.008362767783096083,
+          "reconstruction_error": 0.0
         }
       },
       "selection": {
-        "score": -128.05710855542497,
+        "score": -52.78806015799888,
         "sharpe": -27.989557335534016,
         "final_equity": 9845.930395515317,
         "max_drawdown": 0.016239224822247267,
@@ -83,9 +113,17 @@
         "no_trade_ratio": 0.03389830508474576,
         "equity_alpha": -0.01630176570267286,
         "turnover_cap": 0.25,
-        "turnover_penalty": 107.52257221780233,
+        "inactivity_target": 0.7,
+        "turnover_penalty": 10.752257221780233,
+        "drawdown_penalty": 0.016239224822247267,
         "cost_penalty": 0.01577161866058455,
-        "inactivity_penalty": 0.0
+        "inactivity_penalty": 0.0,
+        "weights": {
+          "turnover": 1.0,
+          "inactivity": 1.0,
+          "drawdown": 1.0,
+          "cost": 1.2
+        }
       }
     },
     {
@@ -115,10 +153,21 @@
           "turnover_total": 2149.733184538471,
           "fee_slippage_total": 257.1471982052313,
           "cost_per_turnover": 0.1196181926458183
+        },
+        "reward_contributions": {
+          "reward_total": -0.06040818937547451,
+          "pnl_total": -0.025985631989765768,
+          "turnover_cost_total": 0.021651803680319322,
+          "penalty_total": 0.012770753705389411,
+          "penalty_drawdown_total": 0.0,
+          "penalty_inactivity_total": 0.0,
+          "penalty_under_utilization_total": 0.0,
+          "penalty_downside_total": 0.012770753705389411,
+          "reconstruction_error": -6.938893903907228e-18
         }
       },
       "selection": {
-        "score": -208.66852456318122,
+        "score": -82.88757791772291,
         "sharpe": -43.230341968721156,
         "final_equity": 9802.329469249798,
         "max_drawdown": 0.022008999779027705,
@@ -127,9 +176,17 @@
         "no_trade_ratio": 0.059322033898305086,
         "equity_alpha": -0.02049820057409862,
         "turnover_cap": 0.25,
-        "turnover_penalty": 179.6807783507179,
+        "inactivity_target": 0.7,
+        "turnover_penalty": 17.96807783507179,
+        "drawdown_penalty": 0.022008999779027705,
         "cost_penalty": 0.02623327434686926,
-        "inactivity_penalty": 0.0
+        "inactivity_penalty": 0.0,
+        "weights": {
+          "turnover": 1.0,
+          "inactivity": 1.0,
+          "drawdown": 1.0,
+          "cost": 1.2
+        }
       }
     },
     {
@@ -159,10 +216,21 @@
           "turnover_total": 1843.4920465541436,
           "fee_slippage_total": 220.56402899700527,
           "cost_per_turnover": 0.11964468705426946
+        },
+        "reward_contributions": {
+          "reward_total": -0.05209118402428099,
+          "pnl_total": -0.022347434834611657,
+          "turnover_cost_total": 0.0186205517919483,
+          "penalty_total": 0.011123197397721028,
+          "penalty_drawdown_total": 0.0,
+          "penalty_inactivity_total": 0.0,
+          "penalty_under_utilization_total": 0.0,
+          "penalty_downside_total": 0.011123197397721028,
+          "reconstruction_error": -1.3877787807814457e-17
         }
       },
       "selection": {
-        "score": -175.42584648441627,
+        "score": -67.81159685784347,
         "sharpe": -34.912447714469494,
         "final_equity": 9803.140916073127,
         "max_drawdown": 0.022759748160367077,
@@ -171,9 +239,17 @@
         "no_trade_ratio": 0.059322033898305086,
         "equity_alpha": -0.0203523971285578,
         "turnover_cap": 0.25,
-        "turnover_penalty": 153.72813953848674,
+        "inactivity_target": 0.7,
+        "turnover_penalty": 15.372813953848675,
+        "drawdown_penalty": 0.022759748160367077,
         "cost_penalty": 0.022499322501359824,
-        "inactivity_penalty": 0.0
+        "inactivity_penalty": 0.0,
+        "weights": {
+          "turnover": 1.0,
+          "inactivity": 1.0,
+          "drawdown": 1.0,
+          "cost": 1.2
+        }
       }
     },
     {
@@ -203,10 +279,21 @@
           "turnover_total": 1781.0079690801929,
           "fee_slippage_total": 213.09681659461222,
           "cost_per_turnover": 0.11964955816826958
+        },
+        "reward_contributions": {
+          "reward_total": -0.050916628355164965,
+          "pnl_total": -0.021603701325663208,
+          "turnover_cost_total": 0.01800062481987828,
+          "penalty_total": 0.011312302209623482,
+          "penalty_drawdown_total": 0.0,
+          "penalty_inactivity_total": 0.0,
+          "penalty_under_utilization_total": 0.0,
+          "penalty_downside_total": 0.011312302209623482,
+          "reconstruction_error": 6.938893903907228e-18
         }
       },
       "selection": {
-        "score": -160.08915748091937,
+        "score": -56.181769798938696,
         "sharpe": -27.51435578286118,
         "final_equity": 9816.320733770224,
         "max_drawdown": 0.021862835269903735,
@@ -215,9 +302,17 @@
         "no_trade_ratio": 0.2457627118644068,
         "equity_alpha": -0.019035311418601927,
         "turnover_cap": 0.25,
-        "turnover_penalty": 148.43287873560956,
+        "inactivity_target": 0.7,
+        "turnover_penalty": 14.843287873560957,
+        "drawdown_penalty": 0.021862835269903735,
         "cost_penalty": 0.021708420331205562,
-        "inactivity_penalty": 0.0
+        "inactivity_penalty": 0.0,
+        "weights": {
+          "turnover": 1.0,
+          "inactivity": 1.0,
+          "drawdown": 1.0,
+          "cost": 1.2
+        }
       }
     }
   ],
@@ -225,7 +320,7 @@
     "criteria": "maximize multi-objective score (risk-adjusted return + alpha - drawdown/cost/turnover/inactivity penalties)",
     "best_candidate": {
       "timesteps": 4000,
-      "score": -128.05710855542497,
+      "score": -52.78806015799888,
       "sharpe": -27.989557335534016,
       "final_equity": 9845.930395515317,
       "max_drawdown": 0.016239224822247267,
@@ -234,9 +329,17 @@
       "no_trade_ratio": 0.03389830508474576,
       "equity_alpha": -0.01630176570267286,
       "turnover_cap": 0.25,
-      "turnover_penalty": 107.52257221780233,
+      "inactivity_target": 0.7,
+      "turnover_penalty": 10.752257221780233,
+      "drawdown_penalty": 0.016239224822247267,
       "cost_penalty": 0.01577161866058455,
-      "inactivity_penalty": 0.0
+      "inactivity_penalty": 0.0,
+      "weights": {
+        "turnover": 1.0,
+        "inactivity": 1.0,
+        "drawdown": 1.0,
+        "cost": 1.2
+      }
     },
     "training_schedule": {
       "configured": {
@@ -279,14 +382,25 @@
       "fee_slippage_total": 155.28625955672598,
       "cost_per_turnover": 0.11961047846396324
     },
+    "reward_contributions": {
+      "reward_total": -0.0370219223474509,
+      "pnl_total": -0.015632977987565848,
+      "turnover_cost_total": 0.013026176576788973,
+      "penalty_total": 0.008362767783096083,
+      "penalty_drawdown_total": 0.0,
+      "penalty_inactivity_total": 0.0,
+      "penalty_under_utilization_total": 0.0,
+      "penalty_downside_total": 0.008362767783096083,
+      "reconstruction_error": 0.0
+    },
     "artifacts": {
-      "csv": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/trace.csv",
-      "svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_equity.svg",
-      "reward_equity_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_equity.svg",
-      "drawdown_turnover_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/drawdown_turnover.svg",
-      "action_position_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/action_position.svg",
-      "costs_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/costs.svg",
-      "reward_components_timeseries_png": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_components_timeseries.png"
+      "csv": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/trace.csv",
+      "svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/action_position.svg",
+      "costs_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/val_trace/reward_components_timeseries.png"
     }
   },
   "test": {
@@ -315,14 +429,25 @@
       "fee_slippage_total": 146.5599109914659,
       "cost_per_turnover": 0.11871996522594402
     },
+    "reward_contributions": {
+      "reward_total": -0.03532807818066859,
+      "pnl_total": -0.014801999627554914,
+      "turnover_cost_total": 0.012333865412768744,
+      "penalty_total": 0.008192213140344932,
+      "penalty_drawdown_total": 0.0,
+      "penalty_inactivity_total": 0.0,
+      "penalty_under_utilization_total": 0.0,
+      "penalty_downside_total": 0.008192213140344932,
+      "reconstruction_error": 0.0
+    },
     "artifacts": {
-      "csv": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/trace.csv",
-      "svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_equity.svg",
-      "reward_equity_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_equity.svg",
-      "drawdown_turnover_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/drawdown_turnover.svg",
-      "action_position_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/action_position.svg",
-      "costs_svg": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/costs.svg",
-      "reward_components_timeseries_png": "runs/20260220_092939Z_d6a5675/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_components_timeseries.png"
+      "csv": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/trace.csv",
+      "svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/action_position.svg",
+      "costs_svg": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_100645Z_cd618c1/walkforward_01/experiment_09_downside_risk_r3/reports/test_trace/reward_components_timeseries.png"
     }
   }
 }
