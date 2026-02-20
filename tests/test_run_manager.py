@@ -34,10 +34,5 @@ def test_make_run_id_default_format(monkeypatch):
     assert re.fullmatch(r"\d{8}_\d{6}Z_abcdef1", run_id)
 
 
-def test_make_run_id_with_option(monkeypatch):
-    monkeypatch.setattr("src.coin_trading.pipelines.run_manager.git_sha", lambda: "abcdef123456")
-
-    run_id = make_run_id(option="train flow@night")
-
-    assert run_id.endswith("__train_flow_night")
-    assert RUN_ID_FORMAT == "<YYYYMMDD_HHMMSSZ>_<git_sha7>[__<option>]"
+def test_make_run_id_format_contract():
+    assert RUN_ID_FORMAT == "<YYYYMMDD_HHMMSSZ>_<git_sha7>"

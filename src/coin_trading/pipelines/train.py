@@ -2,6 +2,7 @@
 
 공개 API:
 - ``run``: 학습 파이프라인 실행 진입점.
+- run_id 규칙은 ``pipelines.run_manager.make_run_id()`` (``<YYYYMMDD_HHMMSSZ>_<git_sha7>``)를 따른다.
 
 비공개/미지원 API:
 - ``ensure_training_candles`` 및 ``summarize_dataset_for_training`` 같은 과거 헬퍼는

@@ -28,7 +28,7 @@ def patched_train_sb3(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def fixed_run_id(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(orchestrator, "make_run_id", lambda *args, **kwargs: "smoke_train_run")
+    monkeypatch.setattr(orchestrator, "make_run_id", lambda: "smoke_train_run")
     return "smoke_train_run"
 
 
@@ -75,12 +75,13 @@ def test_dependency_block_path_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert model_summary["results"][0]["summary"]["reason"] == "missing_dependencies"
 
 
-def test_train_module_run_returns_run_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_train_module_run_returns_run_id_without_type_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """완료 기준: run()이 TypeError 없이 run_id를 반환해야 한다."""
     from src.coin_trading.pipelines import train
     from src.coin_trading.pipelines.train_flow import orchestrator as train_orchestrator
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(train_orchestrator, "make_run_id", lambda *args, **kwargs: "entry_run_id")
+    monkeypatch.setattr(train_orchestrator, "make_run_id", lambda: "entry_run_id")
     monkeypatch.setattr(
         train_orchestrator,
         "write_meta",
