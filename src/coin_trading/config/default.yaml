@@ -39,6 +39,7 @@ train:
   n_steps: 128
   seed: null
   eval_interval: 256
+  walkforward_runs: 3
   early_stop: 3
   checkpoint_interval: 512
   resume_from: null

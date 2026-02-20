@@ -51,6 +51,7 @@ class TrainConfig(BaseModel):
     early_stop: int = Field(ge=0, default=3)
     checkpoint_interval: int = Field(gt=0, default=512)
     resume_from: str | None = None
+    walkforward_runs: int = Field(ge=2, le=10, default=3)
 
 
 class AppConfig(BaseModel):

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import base64
 
 import pandas as pd
 
 from src.coin_trading.report.plotting import render_multi_line_svg
+
+
+def _write_fallback_png(path: Path) -> None:
+    tiny_png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8t2b8AAAAASUVORK5CYII=")
+    path.write_bytes(tiny_png)
 
 
 class StepRecorder:
@@ -37,6 +43,8 @@ class StepRecorder:
             action_position_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
             costs_path = out / "costs.svg"
             costs_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
+            reward_components_path = out / "reward_components_timeseries.png"
+            _write_fallback_png(reward_components_path)
             return {
                 "csv": csv_path,
                 "svg": reward_equity_path,
@@ -44,6 +52,7 @@ class StepRecorder:
                 "drawdown_turnover_svg": drawdown_turnover_path,
                 "action_position_svg": action_position_path,
                 "costs_svg": costs_path,
+                "reward_components_timeseries_png": reward_components_path,
             }
 
         if "filled_qty" in df.columns:
@@ -96,6 +105,8 @@ class StepRecorder:
             ),
             encoding="utf-8",
         )
+        reward_components_path = out / "reward_components_timeseries.png"
+        _render_reward_components_png(df, reward_components_path)
         return {
             "csv": csv_path,
             "svg": reward_equity_path,
@@ -103,5 +114,6 @@ class StepRecorder:
             "drawdown_turnover_svg": drawdown_turnover_path,
             "action_position_svg": action_position_path,
             "costs_svg": costs_path,
+            "reward_components_timeseries_png": reward_components_path,
         }
 
