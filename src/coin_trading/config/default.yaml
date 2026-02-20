@@ -16,6 +16,8 @@ execution:
   slippage_bps: 2.0
   max_step_change: 0.25
   min_delta: 0.01
+  # action은 목표 익스포저 비율이며 허용 범위는 [-1.0, 1.0] (숏~롱)
+  # 관측의 position_ratio는 signed ratio를 유지하고 [-1.0, 1.0]으로 clip합니다.
 features:
   version: v1
   windows:

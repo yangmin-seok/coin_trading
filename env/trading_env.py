@@ -46,8 +46,8 @@ class TradingEnv:
         equity = max(self.state.equity, 1e-12)
 
         obs = {k: feat_row.get(k, 0.0) for k in OBS_COLUMNS}
-        obs["cash_ratio"] = self.state.cash / equity
-        obs["position_ratio"] = position_value / equity
+        obs["cash_ratio"] = float(np.clip(self.state.cash / equity, -10.0, 10.0))
+        obs["position_ratio"] = float(np.clip(position_value / equity, -1.0, 1.0))
         obs["unrealized_pnl_ratio"] = (self.state.equity - self.initial_cash) / self.initial_cash
         obs["last_action"] = self.last_action
         return np.array([obs[col] for col in OBS_COLUMNS], dtype=np.float64)
@@ -77,7 +77,7 @@ class TradingEnv:
             self.lambda_dd,
             self.dd_limit,
         )
-        self.last_action = action
+        self.last_action = float(np.clip(action, -1.0, 1.0))
         self.t += 1
 
         info = {
@@ -93,8 +93,8 @@ class TradingEnv:
             "reward_cost": cost_component,
             "reward_penalty": penalty_component,
             "peak_equity": self.state.peak_equity,
-            "action_target_pos": action,
-            "action_effective_pos": current_pos,
+            "action_target_pos": result.target_pos,
+            "action_effective_pos": result.effective_target_pos,
             "fill_price": result.fill_price,
             "filled_qty": result.filled_qty,
         }
