@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "epochs": 1,
+  "model": "VolTarget-baseline",
+  "steps": 479,
+  "total_reward": -0.002196692314609272,
+  "mean_reward": -4.585996481438981e-06,
+  "final_equity": 10035.741845342985,
+  "artifacts": {
+    "trace_csv": "train_probe/trace.csv",
+    "reward_equity_svg": "train_probe/reward_equity.svg"
+  }
+}

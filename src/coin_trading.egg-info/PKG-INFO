@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: coin-trading
+Version: 0.1.0
+Summary: Reproducible RL trading framework scaffold
+Requires-Python: >=3.11
+Requires-Dist: numpy<3,>=1.26
+Requires-Dist: pandas<3,>=2.2
+Requires-Dist: pydantic<3,>=2.6
+Requires-Dist: pyyaml<7,>=6.0
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8.0; extra == "dev"
