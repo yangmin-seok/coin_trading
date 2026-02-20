@@ -5,7 +5,7 @@ import pandas as pd
 
 from env.execution_model import ExecutionModel
 from env.recorder import StepRecorder
-from env.reward import compute_reward
+from env.reward import compute_reward_components
 from env.spaces import OBS_COLUMNS
 from src.coin_trading.execution.state import PortfolioState
 
@@ -68,7 +68,7 @@ class TradingEnv:
 
         turnover = abs(result.filled_qty * result.fill_price) / max(equity_prev, 1e-12)
         drawdown = 1.0 - (self.state.equity / max(self.state.peak_equity, 1e-12))
-        reward = compute_reward(
+        reward, pnl_component, cost_component, penalty_component = compute_reward_components(
             self.state.equity,
             equity_prev,
             turnover,
@@ -89,6 +89,9 @@ class TradingEnv:
             "fee": result.fee,
             "slippage_cost": result.slippage_cost,
             "drawdown": drawdown,
+            "reward_pnl": pnl_component,
+            "reward_cost": cost_component,
+            "reward_penalty": penalty_component,
             "peak_equity": self.state.peak_equity,
             "action_target_pos": action,
             "action_effective_pos": current_pos,
