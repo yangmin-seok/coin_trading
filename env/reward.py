@@ -28,7 +28,7 @@ def compute_reward_components(
     lambda_downside: float = 0.0,
     current_position_abs: float = 0.0,
     state: dict[str, Any] | None = None,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, dict[str, float]]:
     if equity_t <= 0 or equity_prev <= 0:
         raise ValueError("equity must be positive")
 
@@ -42,7 +42,13 @@ def compute_reward_components(
         inactivity = inactivity_penalty if turnover < inactivity_threshold else 0.0
         extra_penalty = lambda_under_utilization * under_utilization + inactivity
         reward = pnl - cost - dd_penalty - extra_penalty
-        return reward, pnl, cost, dd_penalty + extra_penalty
+        penalties = {
+            "drawdown": dd_penalty,
+            "inactivity": inactivity,
+            "under_utilization": lambda_under_utilization * under_utilization,
+            "downside": 0.0,
+        }
+        return reward, pnl, cost, dd_penalty + extra_penalty, penalties
 
     if reward_type == "differential_sharpe":
         reward_state = state if state is not None else {}
@@ -57,7 +63,13 @@ def compute_reward_components(
         reward_state["var_return"] = max(new_var, 1e-8)
 
         reward = dsr_scale * diff_sharpe - cost - dd_penalty
-        return reward, pnl, cost, dd_penalty
+        penalties = {
+            "drawdown": dd_penalty,
+            "inactivity": 0.0,
+            "under_utilization": 0.0,
+            "downside": 0.0,
+        }
+        return reward, pnl, cost, dd_penalty, penalties
 
     if reward_type == "downside_risk":
         reward_state = state if state is not None else {}
@@ -69,7 +81,13 @@ def compute_reward_components(
         downside_vol = math.sqrt(max(downside_sq_ema, 1e-10))
         downside_penalty = lambda_downside * downside_vol
         reward = pnl - cost - dd_penalty - downside_penalty
-        return reward, pnl, cost, dd_penalty + downside_penalty
+        penalties = {
+            "drawdown": dd_penalty,
+            "inactivity": 0.0,
+            "under_utilization": 0.0,
+            "downside": downside_penalty,
+        }
+        return reward, pnl, cost, dd_penalty + downside_penalty, penalties
 
     raise ValueError(f"unsupported reward_type: {reward_type}")
 
@@ -81,5 +99,5 @@ def compute_reward(
     drawdown: float,
     **kwargs: Any,
 ) -> float:
-    reward, _, _, _ = compute_reward_components(equity_t, equity_prev, turnover, drawdown, **kwargs)
+    reward, _, _, _, _ = compute_reward_components(equity_t, equity_prev, turnover, drawdown, **kwargs)
     return reward
