@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train import ensure_training_candles, run, summarize_dataset_for_training
+from src.coin_trading.pipelines.train import run
+from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, summarize_dataset
 
 
 def test_summarize_dataset_for_training(sample_candles):
     cfg = load_config()
-    summary = summarize_dataset_for_training(sample_candles, cfg)
+    summary = summarize_dataset(sample_candles, cfg)
 
     assert summary["rows"] == len(sample_candles)
     assert summary["coverage"]["start_open_time"] <= summary["coverage"]["end_open_time"]
