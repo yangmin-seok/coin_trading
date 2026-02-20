@@ -1,0 +1,82 @@
+{
+  "history": [
+    {
+      "timesteps": 256,
+      "val": {
+        "steps": 238,
+        "final_equity": 9963.471434750214,
+        "sharpe": -8.482366918210609,
+        "max_drawdown": 0.0039706154956589135,
+        "turnover": 1.159696176326661,
+        "win_rate": 0.0
+      }
+    },
+    {
+      "timesteps": 512,
+      "val": {
+        "steps": 238,
+        "final_equity": 9928.606461812058,
+        "sharpe": -9.61878699010177,
+        "max_drawdown": 0.007890370930815904,
+        "turnover": 2.402728715097024,
+        "win_rate": 0.0
+      }
+    },
+    {
+      "timesteps": 768,
+      "val": {
+        "steps": 238,
+        "final_equity": 9944.34159577898,
+        "sharpe": -8.667757850145271,
+        "max_drawdown": 0.006242999306320107,
+        "turnover": 1.8545920039784138,
+        "win_rate": 0.0
+      }
+    },
+    {
+      "timesteps": 1024,
+      "val": {
+        "steps": 238,
+        "final_equity": 9920.691087124666,
+        "sharpe": -16.037533274765174,
+        "max_drawdown": 0.008636009894460228,
+        "turnover": 2.526569512504879,
+        "win_rate": 0.0
+      }
+    }
+  ],
+  "val": {
+    "steps": 238,
+    "final_equity": 9963.471434750214,
+    "sharpe": -8.482366918210609,
+    "max_drawdown": 0.0039706154956589135,
+    "turnover": 1.159696176326661,
+    "win_rate": 0.0,
+    "artifacts": {
+      "csv": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/trace.csv",
+      "svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/action_position.svg",
+      "costs_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/val_trace/reward_components_timeseries.png"
+    }
+  },
+  "test": {
+    "steps": 238,
+    "final_equity": 9918.611305413682,
+    "sharpe": -14.018566461671396,
+    "max_drawdown": 0.008908013516424895,
+    "turnover": 2.507096300590971,
+    "win_rate": 0.004201680672268907,
+    "artifacts": {
+      "csv": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/trace.csv",
+      "svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/reward_equity.svg",
+      "reward_equity_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/reward_equity.svg",
+      "drawdown_turnover_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/drawdown_turnover.svg",
+      "action_position_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/action_position.svg",
+      "costs_svg": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/costs.svg",
+      "reward_components_timeseries_png": "runs/20260220_080336Z_566f0b1/walkforward_01/reports/test_trace/reward_components_timeseries.png"
+    }
+  }
+}
