@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.coin_trading.pipelines.train_flow import orchestrator
+
 
 @pytest.fixture
 def sample_candles() -> pd.DataFrame:
@@ -25,3 +27,23 @@ def sample_candles() -> pd.DataFrame:
             "close_time": (open_time + 299_999).astype("int64"),
         }
     )
+
+
+@pytest.fixture
+def patched_meta(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(orchestrator, "write_meta", lambda run_dir: (run_dir / "meta.json").write_text("{}", encoding="utf-8"))
+
+
+@pytest.fixture
+def patched_train_sb3(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        orchestrator,
+        "train_sb3",
+        lambda *_args, **_kwargs: {"enabled": False, "reason": "insufficient_split_rows"},
+    )
+
+
+@pytest.fixture
+def fixed_run_id(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(orchestrator, "make_run_id", lambda *args, **kwargs: "smoke_train_run")
+    return "smoke_train_run"

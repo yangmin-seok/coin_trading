@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, split_by_date, summarize_dataset
@@ -19,10 +20,11 @@ def test_summarize_dataset(sample_candles: pd.DataFrame):
     assert 0.0 <= summary["features"]["nan_ratio_mean"] <= 1.0
 
 
-def test_split_by_date_filters_range(sample_candles: pd.DataFrame):
+@pytest.mark.parametrize(("start_idx", "end_idx"), [(10, 30)])
+def test_split_by_date_filters_range(sample_candles: pd.DataFrame, start_idx: int, end_idx: int):
     dates = pd.to_datetime(sample_candles["open_time"], unit="ms", utc=True).dt.strftime("%Y-%m-%d")
-    start = dates.iloc[10]
-    end = dates.iloc[30]
+    start = dates.iloc[start_idx]
+    end = dates.iloc[end_idx]
 
     split = split_by_date(sample_candles, (start, end))
 
