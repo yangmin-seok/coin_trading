@@ -83,7 +83,7 @@ python -m src.coin_trading.pipelines.train
 
 성공하면 콘솔 마지막 줄에 `run_id`가 출력됩니다.
 
----
+요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
 
 ## 3) Train은 "목표"가 아니라 "런타임 점검 게이트"
 
