@@ -106,7 +106,7 @@ class StepRecorder:
 
 def _render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title: str) -> str:
     width, height = 900, 340
-    pad_l, pad_r, pad_t, pad_b = 50, 20, 20, 40
+    pad_l, pad_r, pad_t, pad_b = 70, 20, 20, 45
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
@@ -142,11 +142,16 @@ def _render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], titl
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + chart_h}' stroke='#999'/>"
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
+    ticks = "".join(
+        f"<text x='{pad_l-8}' y='{pad_t + i * chart_h / 4:.1f}' text-anchor='end' font-size='10' fill='#666'>{4-i}</text>"
+        for i in range(5)
+    )
 
     legend = []
     for i, (name, color) in enumerate(series):
         legend.append(f"<text x='{55 + i * 120}' y='18' font-size='12' fill='{color}'>{name}</text>")
-    labels = f"<text x='{pad_l}' y='{height-8}' font-size='11' fill='#666'>step</text>"
+    labels = f"<text x='{pad_l + chart_w/2:.1f}' y='{height-8}' text-anchor='middle' font-size='11' fill='#666'>step index (x-axis)</text>"
+    labels += f"<text x='14' y='{pad_t + chart_h/2:.1f}' font-size='11' fill='#666' transform='rotate(-90 14,{pad_t + chart_h/2:.1f})'>normalized metric value (y-axis)</text>"
     labels += "".join(legend)
     labels += f"<text x='{pad_l}' y='{pad_t + 12}' font-size='12' fill='#222'>{title}</text>"
 
@@ -155,6 +160,6 @@ def _render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], titl
     return (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
         f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>"
-        f"{guides}{lines}{labels}"
+        f"{guides}{ticks}{lines}{labels}"
         "</svg>"
     )
