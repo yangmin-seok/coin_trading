@@ -6,15 +6,28 @@ import pandas as pd
 from env.execution_model import ExecutionModel
 from env.recorder import StepRecorder
 from env.reward import compute_reward
+from env.spaces import OBS_COLUMNS
 from execution.state import PortfolioState
 
 
 class TradingEnv:
-    def __init__(self, candles: pd.DataFrame, features: pd.DataFrame, execution_model: ExecutionModel, initial_cash: float = 10_000.0) -> None:
+    def __init__(
+        self,
+        candles: pd.DataFrame,
+        features: pd.DataFrame,
+        execution_model: ExecutionModel,
+        initial_cash: float = 10_000.0,
+        lambda_turnover: float = 0.001,
+        lambda_dd: float = 0.1,
+        dd_limit: float = 0.2,
+    ) -> None:
         self.candles = candles.reset_index(drop=True)
         self.features = features.reset_index(drop=True)
         self.execution_model = execution_model
         self.initial_cash = initial_cash
+        self.lambda_turnover = lambda_turnover
+        self.lambda_dd = lambda_dd
+        self.dd_limit = dd_limit
         self.recorder = StepRecorder()
         self.reset()
 
@@ -27,16 +40,17 @@ class TradingEnv:
         return self._obs()
 
     def _obs(self) -> np.ndarray:
-        row = self.features.loc[self.t].fillna(0.0)
+        feat_row = self.features.loc[self.t].fillna(0.0).to_dict()
         price = float(self.candles.loc[self.t, "close"])
         position_value = self.state.position_qty * price
         equity = max(self.state.equity, 1e-12)
-        obs = row.to_dict()
+
+        obs = {k: feat_row.get(k, 0.0) for k in OBS_COLUMNS}
         obs["cash_ratio"] = self.state.cash / equity
         obs["position_ratio"] = position_value / equity
         obs["unrealized_pnl_ratio"] = (self.state.equity - self.initial_cash) / self.initial_cash
         obs["last_action"] = self.last_action
-        return np.array(list(obs.values()), dtype=np.float64)
+        return np.array([obs[col] for col in OBS_COLUMNS], dtype=np.float64)
 
     def step(self, action: float):
         if self.t >= len(self.candles) - 2:
@@ -54,7 +68,15 @@ class TradingEnv:
 
         turnover = abs(result.filled_qty * result.fill_price) / max(equity_prev, 1e-12)
         drawdown = 1.0 - (self.state.equity / max(self.state.peak_equity, 1e-12))
-        reward = compute_reward(self.state.equity, equity_prev, turnover, drawdown, 0.001, 0.1, 0.2)
+        reward = compute_reward(
+            self.state.equity,
+            equity_prev,
+            turnover,
+            drawdown,
+            self.lambda_turnover,
+            self.lambda_dd,
+            self.dd_limit,
+        )
         self.last_action = action
         self.t += 1
 
@@ -68,6 +90,7 @@ class TradingEnv:
             "drawdown": drawdown,
             "peak_equity": self.state.peak_equity,
             "action_target_pos": action,
+            "action_effective_pos": current_pos,
             "fill_price": result.fill_price,
             "filled_qty": result.filled_qty,
         }

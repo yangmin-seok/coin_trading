@@ -6,6 +6,7 @@ import json
 import platform
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 def make_run_id(mode: str, symbol: str, interval: str, seed: int) -> str:
@@ -18,15 +19,28 @@ def git_sha() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
 
+def _git_dirty() -> bool:
+    return bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
+
+
 def write_meta(run_dir: Path) -> None:
     meta = {
         "git_sha": git_sha(),
-        "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
+        "git_dirty": _git_dirty(),
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "libs": {},
+        "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def write_data_manifest(run_dir: Path, payload: dict[str, Any]) -> None:
+    (run_dir / "data_manifest.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def write_feature_manifest(run_dir: Path, payload: dict[str, Any]) -> None:
+    (run_dir / "feature_manifest.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def implementation_hash(files: list[Path]) -> str:
