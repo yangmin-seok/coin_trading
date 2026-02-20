@@ -107,16 +107,65 @@ class StepRecorder:
             df["signal"] = df["filled_qty"].fillna(0.0).map(_signal)
 
         df.insert(0, "step", range(len(df)))
+
+        if "equity" in df.columns and not df.empty:
+            initial_equity = float(df["equity"].iloc[0])
+            df["cash_hold"] = initial_equity
+            if "fill_price" in df.columns:
+                first_price = float(df["fill_price"].iloc[0]) if float(df["fill_price"].iloc[0]) != 0 else 1.0
+                df["buy_hold"] = initial_equity * (df["fill_price"].astype(float) / first_price)
+
+            denom = abs(initial_equity) if abs(initial_equity) > 1e-12 else 1.0
+            df["equity_return_pct"] = df["equity"].astype(float) / denom - 1.0
+            df["cash_hold_return_pct"] = df.get("cash_hold", pd.Series([initial_equity] * len(df))).astype(float) / denom - 1.0
+            df["buy_hold_return_pct"] = df.get("buy_hold", pd.Series([initial_equity] * len(df))).astype(float) / denom - 1.0
         csv_path = out / "trace.csv"
         df.to_csv(csv_path, index=False)
 
         reward_equity_path = out / "reward_equity.svg"
+        best_equity_idx = int(df["equity"].astype(float).idxmax()) if "equity" in df.columns else 0
+        final_idx = int(df.index[-1]) if not df.empty else 0
+        final_equity = float(df["equity"].iloc[-1]) if "equity" in df.columns else 0.0
+        max_drawdown = float(df["drawdown"].astype(float).max()) if "drawdown" in df.columns else 0.0
+        turnover = float(df["filled_qty"].astype(float).abs().mean()) if "filled_qty" in df.columns else 0.0
+        sharpe = 0.0
+        if "equity" in df.columns and len(df) > 1:
+            ret = df["equity"].astype(float).pct_change().fillna(0.0)
+            std = float(ret.std())
+            sharpe = float((ret.mean() / std) * (252**0.5)) if std > 1e-12 else 0.0
+
+        subtitle = (
+            f"FinalEq={final_equity:.2f}, MDD={max_drawdown:.2%}, "
+            f"Turnover={turnover:.4f}, Sharpe={sharpe:.3f}"
+        )
         reward_equity_path.write_text(
             render_multi_line_svg(
                 df,
-                primary_series=[("reward", "#1f77b4"), ("equity", "#2ca02c")],
+                primary_series=[
+                    ("equity_return_pct", "#2ca02c"),
+                    ("cash_hold_return_pct", "#7f7f7f"),
+                    ("buy_hold_return_pct", "#8c564b"),
+                ],
                 secondary_series=[],
-                title="Reward / Equity",
+                title="Equity vs Baselines (Return %)",
+                subtitle=subtitle,
+                annotations=[
+                    {
+                        "index": best_equity_idx,
+                        "value": float(df["equity_return_pct"].iloc[best_equity_idx]) if "equity_return_pct" in df.columns else 0.0,
+                        "axis": "left",
+                        "color": "#ff7f0e",
+                        "label": f"best@{best_equity_idx}",
+                    },
+                    {
+                        "index": final_idx,
+                        "value": float(df["equity_return_pct"].iloc[final_idx]) if "equity_return_pct" in df.columns else 0.0,
+                        "axis": "left",
+                        "color": "#2ca02c",
+                        "label": f"final@{final_idx}",
+                    },
+                ],
+                y_format_left="percent",
             ),
             encoding="utf-8",
         )
@@ -161,4 +210,3 @@ class StepRecorder:
             "costs_svg": costs_path,
             "reward_components_timeseries_png": reward_components_path,
         }
-
