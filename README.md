@@ -1,19 +1,57 @@
 # coin_trading
 
 RL 기반 코인 트레이딩 프레임워크입니다.  
-현재는 **학습 데이터/피처/환경/런 메타 기록/시장데이터 처리**와 함께, 주문/리스크/user stream/알림/정책 래퍼의 기본 구현이 포함되어 있습니다.
+현재는 **학습 파이프라인(train probe) + 실시간 트레이드 런타임(runtime) + 거래소 연동 + 알림 모듈**의 기본 흐름이 연결되어 있습니다.
 
 ---
 
-## 1) 목표: "train 한 번"으로 바로 런 산출물 만들기
+## 0) 프로젝트 구조 총람 (전체 파악)
 
-이 프로젝트는 `python -m pipelines.train` **1회 실행만으로** 아래를 보장하도록 구성되어 있습니다.
+아래는 저장소 루트 기준 구조입니다.
 
-- `runs/<run_id>/` 산출물 생성
-- 데이터가 없으면 `data/processed/...`에 **부트스트랩(합성) 캔들 데이터 자동 생성**
-- `train_manifest.json` 상태를 `ready`로 기록
+```text
+<repo-root>
+├─ README.md
+├─ pyproject.toml
+├─ docs/
+│  ├─ README.md
+│  └─ CODEBASE_FUNCTION_MAP.md
+├─ data/                     # 데이터 I/O/검증/다운로더 유틸(루트 패키지)
+├─ env/                      # TradingEnv, reward/execution model, recorder
+├─ src/coin_trading/
+│  ├─ agents/                # baseline/SB3 정책 어댑터
+│  ├─ config/                # 설정 스키마 + 로더
+│  ├─ execution/             # marketdata/order/risk/reconcile/state
+│  ├─ features/              # offline/online 피처 계산
+│  ├─ integrations/          # Binance REST/WS + Telegram
+│  ├─ monitoring/            # metrics/alerts/drift
+│  └─ pipelines/             # train/trade/test/run_manager 진입점
+└─ tests/                    # 유닛/통합 테스트
+```
 
-즉, 처음 클론한 환경에서도 최소한 "학습 파이프라인이 끝까지 도는지"를 바로 검증할 수 있습니다.
+핵심 포인트:
+
+- 실행 진입점은 `src.coin_trading.pipelines.*` 모듈 경로입니다.
+- 실행은 저장소 루트에서 `python -m src.coin_trading.pipelines.<name>` 형태로 수행합니다.
+- `PYTHONPATH`를 수동으로 설정하지 않아도 됩니다.
+
+---
+
+## 1) 경로 변경 반영: 실행 기준 위치
+
+최근 구조 기준 실행 기준은 **저장소 루트**입니다.
+
+```bash
+cd .
+```
+
+아래처럼 모듈 경로를 명시해 실행하세요.
+
+```bash
+python -m src.coin_trading.pipelines.train
+```
+
+> 참고: 로컬 환경에서 패키지명이 `src.coin_traiding`로 설정되어 있다면, 아래 `src.coin_trading` 부분만 해당 이름으로 치환해 실행하세요.
 
 ---
 
@@ -35,124 +73,188 @@ python -m pip install -e '.[dev]'
 
 네트워크 제한 환경에서는 의존성 설치가 실패할 수 있습니다.
 
-### 2-3. 진짜 최소 실행(핵심)
+### 2-3. 최소 실행 (명시적 모듈 경로)
 
 ```bash
-python -m pipelines.train
+python -m src.coin_trading.pipelines.train
 ```
 
-성공하면 콘솔에 `run_id`가 출력됩니다.
+> 참고: 로컬 환경에서 패키지명이 `src.coin_traiding`로 설정되어 있다면, 아래 `src.coin_trading` 부분만 해당 이름으로 치환해 실행하세요.
 
-예시:
-
-```text
-demo-btcusdt-5m-3-20260101-010203
-```
+성공하면 콘솔 마지막 줄에 `run_id`가 출력됩니다.
 
 ---
 
-## 3) train 1회 실행 시 생성되는 파일
+## 3) Train은 "목표"가 아니라 "런타임 점검 게이트"
 
-`runs/<run_id>/` 아래:
+요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
 
-- `config.yaml`: 실행 시점 설정 스냅샷
-- `meta.json`: 실행 메타 정보(시간/git 등)
-- `data_manifest.json`: 데이터/커버리지/부트스트랩 여부
-- `feature_manifest.json`: 피처 컬럼/윈도우/구현 해시
-- `train_manifest.json`: 학습 준비 상태 + probe epochs/model 요약
-- `dataset_summary.json`: split별 row 및 피처 NaN 요약
-- `train_probe_summary.json`: reward/equity probe 요약
+- 캔들 데이터 로딩/부트스트랩
+- 오프라인 피처 계산
+- TradingEnv + baseline 정책 1회 probe
+- run 산출물(manifest/summary/artifact) 생성
 
-`data_manifest.json`에서 아래 키를 확인하세요.
+즉, Train은 "실거래 전 점검 단계" 역할에 가깝습니다.
 
-- `bootstrap_generated: true` → 실제 데이터가 없어 자동 합성 데이터 생성됨
-- `bootstrap_persisted: true` → 합성 데이터를 `data/processed` parquet로 저장함
-- `bootstrap_persisted: false` → parquet 엔진(pyarrow/fastparquet) 미설치로 메모리에서만 사용함
-- `bootstrap_generated: false` → 기존 `data/processed` 데이터 사용됨
+### 3-1. 실행 순서 상세
 
----
+`src.coin_trading.pipelines.train.run()` 기준:
 
+1. 설정 로드 (`load_config`)
+2. `run_id` 생성, `runs/<run_id>/` 생성
+3. `config.yaml`, `meta.json` 기록
+4. 학습용 캔들 로드 (`data/processed/...`)
+5. 없으면 bootstrap 캔들 생성 + parquet 저장 시도
+6. 데이터셋/split/피처 NaN 요약 생성
+7. `TradingEnv`에서 baseline(`VolTarget`) probe 롤아웃
+8. `data_manifest.json`, `feature_manifest.json`, `train_manifest.json`, `dataset_summary.json` 기록
 
-## 3-1) 자주 묻는 질문 (train)
+### 3-2. Train 결과에서 확인할 핵심 파일
 
-- **Q. train epoch은 어느정도야?**  
-  현재 `pipelines.train`은 딥러닝 학습 루프가 아니라, **1 epoch 성격의 baseline probe 롤아웃**을 수행합니다.
-  `train_manifest.json`의 `epochs`가 `1`로 기록됩니다.
+`runs/<run_id>/`:
 
-- **Q. 모델은 어떤 걸 사용해?**  
-  현재 probe 모델은 `VolTarget-baseline`입니다. (`agents.baselines.VolTarget`)
-  실제 SB3 PPO/SAC 학습 파이프라인은 아직 별도 고도화가 필요합니다.
-
-- **Q. train이 잘 되는지 reward를 볼 수 있어?**  
-  가능합니다. train 실행 시 `runs/<run_id>/train_probe/` 아래에:
-  - `trace.csv` (step, signal=buy/hold/sell, reward, equity 등)
-  - `reward_equity.svg` (reward/equity 추이)
-  가 자동 생성됩니다.
-
-## 4) 설정 방법
-
-기본 설정 파일은 `config/default.yaml` 입니다.
-
-주요 키:
-
-- `mode`: 실행 모드 (`demo`/`live`/`backtest`)
-- `exchange`, `market`, `symbol`, `interval`
-- `reward.*`: 보상 함수 파라미터
-- `execution.*`: 수수료/슬리피지/행동 변화 제한
-- `features.version`, `features.windows.*`
-- `split.train/val/test`: 데이터 분할 기준 날짜
-
-환경변수 오버라이드는 `COIN_TRADING__` prefix를 사용합니다.
-
-예시:
-
-```bash
-export COIN_TRADING__SYMBOL=ETHUSDT
-export COIN_TRADING__INTERVAL=1m
-python -m pipelines.train
-```
-
-`config.loader.load_config()`가 YAML + 환경변수를 합쳐 검증합니다.
+- `train_manifest.json`: 현재 상태(ready/blocked), probe 요약
+- `data_manifest.json`: bootstrap 여부, 커버리지
+- `feature_manifest.json`: 피처 정의/구현 해시
+- `dataset_summary.json`: split row/NaN 비율
+- `train_probe_summary.json`: steps/reward/equity
+- `train_probe/trace.csv`, `train_probe/reward_equity.svg`: probe 추적 아티팩트
 
 ---
 
-## 5) 실행 가이드 (처음부터 끝까지)
+## 4) 실시간으로 "어떻게 주고받는지" (Runtime 이벤트 흐름)
 
-### Step A. train 한 번 실행
+아래는 `src.coin_trading.pipelines.trade` 기준의 런타임 흐름입니다.
+
+### 4-1. 런타임 구성(build_runtime)
+
+- `BinanceRESTClient`: REST 조회
+- `MarketDataWS`: 마켓 websocket 이벤트 수신
+- `GapFiller`: 누락 candle을 REST로 메움
+- `OnlineFeatureEngine`: 실시간 피처 업데이트
+- `VolTarget`: 목표 포지션 계산
+- `RiskManager`: 목표 승인/거절
+- `OrderManager`: 주문 의도 변환
+- `MetricsLogger`: JSONL 메트릭 기록
+- `AlertEngine`: 리컨실/드로우다운 알림 판단
+
+### 4-2. 시장 데이터 수신 → 내부 큐 전달
+
+1. WS 메시지 수신
+2. `kline.x == true`(종가 확정 캔들)만 처리
+3. timestamp gap 발생 시 `GapFiller.fill(...)` 호출
+4. 보정 이벤트 + 신규 이벤트를 `asyncio.Queue`에 넣음
+5. 마지막 처리 시각(`last_ts`) 저장
+
+### 4-3. 큐 소비 시 의사결정 루프
+
+`process_market_event(runtime, event)`:
+
+1. 포트폴리오 mark-to-market
+2. 실시간 피처 업데이트
+3. 정책이 목표 비중 산출 (`policy.act`)
+4. 리스크 승인 (`risk.approve_target`)
+5. 승인 시 주문 의도(`target_to_intent`) 생성
+6. 메트릭 카운터/구조화 로그 emit
+
+### 4-4. 최소 점검 커맨드
 
 ```bash
-python -m pipelines.train
+python -c "from src.coin_trading.pipelines.trade import run; print(run())"
 ```
 
-### Step B. 산출물 상태 확인
+이 명령은 runtime 조립이 되는지 빠르게 확인합니다.
+
+---
+
+## 5) User Stream (실시간 체결/잔고 이벤트) 처리
+
+`src.coin_trading.integrations.binance_ws_user.BinanceUserWS`는 user stream payload를 이벤트 타입별로 분류하여 큐로 전달합니다.
+
+- 처리 이벤트 타입:
+  - `outboundAccountPosition`
+  - `executionReport`
+  - `balanceUpdate`
+  - 기타는 `other`
+- 입력이 combined stream 형식이면 `data` 필드를 자동 추출
+- 최종적으로 `UserStreamEvent(event_type, payload)`를 큐에 저장
+
+이 구조를 사용하면 주문 체결/잔고 변경을 runtime loop에서 비동기 소비하도록 확장할 수 있습니다.
+
+---
+
+## 6) 텔레그램 메시지는 어떻게 보내는가
+
+`src.coin_trading.integrations.telegram.TelegramSender`가 Telegram Bot API `sendMessage`를 직접 호출합니다.
+
+### 6-1. 동작 방식
+
+- URL: `https://api.telegram.org/bot<token>/sendMessage`
+- JSON payload:
+  - `chat_id`
+  - `text`
+  - `disable_notification`
+- `urllib.request.urlopen`으로 POST 전송
+- 응답 JSON(dict) 반환
+
+### 6-2. 사용 예시
+
+```python
+from src.coin_trading.integrations.telegram import TelegramSender
+
+sender = TelegramSender(bot_token="<BOT_TOKEN>", chat_id="<CHAT_ID>")
+resp = sender.send_text("[coin_trading] runtime started")
+print(resp)
+```
+
+### 6-3. 운영 시 권장
+
+현재 구현은 기본 전송만 포함합니다. 운영에서는 아래를 추가 권장합니다.
+
+- 네트워크 예외 처리
+- 재시도/백오프
+- 레이트리밋 대응
+- 알림 코드별 포맷 통일
+
+---
+
+## 7) 구역별 점검 체크리스트
+
+### A. Train 구역
 
 ```bash
-RUN_ID=$(python -m pipelines.train | tail -n 1)
+RUN_ID=$(python -m src.coin_trading.pipelines.train | tail -n 1)
 cat runs/$RUN_ID/train_manifest.json
 cat runs/$RUN_ID/data_manifest.json
 ```
 
-확인 포인트:
-
+체크 포인트:
 - `train_manifest.status == "ready"`
-- `data_manifest.bootstrap_generated` 값
+- `data_manifest.bootstrap_generated` 값 확인
 
-### Step C. 트레이드 런타임 빌드/점검
+### B. Runtime 구역
 
 ```bash
-python -c "from pipelines.trade import run; print(run())"
+python -c "from src.coin_trading.pipelines.trade import run; print(run())"
 ```
 
-기본 모드에서는 런타임 조립 상태를 반환하고,  
-`run(max_events=...)`로 큐 이벤트 소비/피처 업데이트/리스크 판단/주문 의도 생성까지 점검할 수 있습니다.
+체크 포인트:
+- runtime ready 문자열 출력
+- symbol/interval 정상 표시
 
-### Step D. 리컨실 로직 단독 점검 예시
+### C. User Stream 구역
 
-`pipelines.trade.reconcile_once(...)`로 내부 잔고 vs 거래소 잔고 비교/알림을 확인할 수 있습니다.
+- user event가 `executionReport` 등으로 분류되는지 확인
+- 큐 consumer에서 이벤트 누락 없이 읽는지 확인
+
+### D. Telegram 구역
+
+- 토큰/챗ID로 `send_text` 정상 응답 확인
+- 실패 시 재시도 정책(추후 구현)을 붙일 지점 정의
 
 ---
 
-## 6) 테스트
+## 8) 테스트
 
 ```bash
 pytest -q
@@ -163,48 +265,3 @@ pytest -q
 ```bash
 python -m compileall .
 ```
-
----
-
-
-### 6-1. 백테스트 의사결정 추적 시각화(테스트 아티팩트)
-
-아래 테스트는 백테스트 스텝에서 모델의 buy/hold/sell 신호(`filled_qty` 기반)와 `reward`, `equity` 추이를 아티팩트로 저장합니다.
-
-```bash
-pytest -q tests/test_backtest_trace_visualization.py
-```
-
-생성물(테스트 tmp 디렉토리):
-- `trace.csv`: step별 signal(reward/equity 포함)
-- `reward_equity.svg`: reward/equity 라인 차트
-
-## 7) 현재 구현 범위 / 비구현 범위
-
-구현됨(핵심):
-
-- 설정 로딩/검증
-- 피처 계산(offline/online) + parity 확인 유틸
-- 트레이딩 환경/보상/체결 모델
-- Binance REST + market WS payload 처리
-- 리컨실/메트릭/알림 엔진 기본
-- run artifact 기록
-- **train 시 데이터 미존재 시 자동 bootstrap 데이터 생성**
-
-비구현 또는 부분구현:
-
-- `pipelines/trade.py`의 실거래 주문 전송/복구 자동화 고도화
-- `integrations/binance_ws_user.py`의 listenKey 발급/갱신 자동화
-- `integrations/telegram.py`의 재시도/레이트리밋 대응
-- SB3 PPO/SAC 학습 파이프라인 실연결
-
-상세 체크리스트는 `docs/CODEBASE_FUNCTION_MAP.md` 참고.
-
----
-
-## 8) 권장 다음 작업
-
-1. 실주문 lifecycle(전송/체결추적/실패복구) 고도화
-2. user stream listenKey lifecycle 자동화
-3. alert → telegram 운영 품질(재시도/한도) 강화
-4. SB3 학습/로드/평가 파이프라인 연결

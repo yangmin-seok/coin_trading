@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from execution.marketdata import CandleClosedEvent
-from pipelines.trade import build_runtime, process_market_event
+from src.coin_trading.execution.marketdata import CandleClosedEvent
+from src.coin_trading.pipelines.trade import build_runtime, process_market_event
 
 
 def test_process_market_event_produces_decision_payload():

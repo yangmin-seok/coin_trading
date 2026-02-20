@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pipelines.test import run
+from src.coin_trading.pipelines.test import run
 
 
 def test_paper_pipeline_scaffold():

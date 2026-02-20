@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from features.common import FeatureState, update_features
-from features.definitions import FEATURE_COLUMNS
+from src.coin_trading.features.common import FeatureState, update_features
+from src.coin_trading.features.definitions import FEATURE_COLUMNS
 
 
 class OnlineFeatureEngine:

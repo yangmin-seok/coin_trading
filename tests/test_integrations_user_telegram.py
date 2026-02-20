@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from integrations.binance_ws_user import BinanceUserWS, extract_user_payload
-from integrations.telegram import TelegramSender
+from src.coin_trading.integrations.binance_ws_user import BinanceUserWS, extract_user_payload
+from src.coin_trading.integrations.telegram import TelegramSender
 
 
 def test_extract_user_payload_handles_combined_stream():

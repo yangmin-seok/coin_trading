@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from execution.state import PortfolioState
+from src.coin_trading.execution.state import PortfolioState
 
 
 class OrderClient(Protocol):

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from config.loader import load_config
-from pipelines.train import ensure_training_candles, run, run_training_probe, summarize_dataset_for_training
+from src.coin_trading.config.loader import load_config
+from src.coin_trading.pipelines.train import ensure_training_candles, run, run_training_probe, summarize_dataset_for_training
 
 
 def test_summarize_dataset_for_training(sample_candles):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from features.online import OnlineFeatureEngine
+from src.coin_trading.features.online import OnlineFeatureEngine
 
 
 def compute_offline(candles_df: pd.DataFrame) -> pd.DataFrame:

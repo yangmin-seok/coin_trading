@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from features.online import OnlineFeatureEngine
-from features.parity_test import replay_and_compare
+from src.coin_trading.features.online import OnlineFeatureEngine
+from src.coin_trading.features.parity_test import replay_and_compare
 
 
 def test_features_offline_online_parity(sample_candles):
