@@ -1,97 +1,83 @@
-# Coin Trading Implementation Status (handoff-safe)
+# Coin Trading 구현 상태 (통합본)
 
-이 문서는 **다음 세션에서도 끊기지 않도록** 현재 구현 상태와 남은 작업을 폴더별로 기록한다.
-기준 커밋은 문서 업데이트 시점의 `HEAD`를 따른다.
+중복 문서를 통합해, 이 파일 하나에서 폴더/함수/남은 작업을 확인할 수 있게 정리했습니다.
 
-## 1) 폴더별 현황
+## 1) 구현 체크 요약
 
-### config/
-- 구현됨
-  - `schema.py`: 앱/보상/실행/피처/split 타입 검증
-  - `loader.py`: yaml + env override 로딩
-- 수정 필요
-  - env override 타입 캐스팅 강화(현재 문자열 주입 중심)
-  - secret 분리 로더(예: `.env`/vault) 명시화
+- config, features, env, run artifact 기록: 구현
+- train 파이프라인: 구현(합성 데이터 기반 에피소드 실행 + summary 기록)
+- trade 실거래 루프: 부분 구현(런타임 조립/리컨실만 구현)
+- 주문/리스크/유저WS/텔레그램: 미구현(placeholder)
 
-### data/
-- 구현됨
-  - `io.py`: parquet 파티션 경로/읽기/쓰기
-  - `validator.py`: 중복/결측(gap)/이상치 검사
-  - `downloader.py`: 계약/시간단위 정규화(ms/us)
-- 구현 필요
-  - bulk zip + checksum 실제 다운로드
-  - REST 증분 병합/재시도 정책
+## 2) 폴더/함수별 상태
 
-### features/
-- 구현됨
-  - online-first feature 계산 경로
-  - offline replay + parity 테스트 유틸
-- 수정 필요
-  - feature window/파라미터를 config와 완전 연동
-  - 구현 해시/manifest에 parity 결과(steps, max diff) 반영
+## config/
+- `loader.load_config`: YAML + `COIN_TRADING__` env override + schema validate
+- `schema.*`: reward/execution/features/split/app 검증 모델
 
-### env/
-- 구현됨
-  - t 관측, t+1(next_open) 체결 시맨틱
-  - reward 파라미터 주입
-  - step recorder
-- 수정 필요
-  - obs 스키마 검증(누락 feature 강제 에러 옵션)
-  - 거래소 필터(minQty/stepSize/minNotional) 제약 반영
+상태: 구현됨
 
-### execution/
-- 구현됨
-  - `marketdata.py`: closed-candle only 처리, gapfill, last_ts 저장
-  - `marketdata.py`: start/stop/reader loop 스캐폴드(`MessageStream` 기반)
-  - `state.py`: 포트폴리오 상태
-  - `reconcile.py`: 스냅샷 기반 불일치 감지 로직
-- 구현 필요
-  - order/risk 실제 정책 및 이벤트 반영
-  - WS reconnect/backoff 정책 카운터와 완전 연동
+## data/
+- `io.build_partition_path`, `write_candles_parquet`, `read_candles_parquet`
+- `validator.DataValidator`
+- `downloader.normalize_time_unit` (+ downloader 골격)
 
-### integrations/
-- 구현됨
-  - `binance_ws_market.py`: raw/combined payload normalize
-  - `binance_rest.py`: klines/account/open orders REST 어댑터 + retry/backoff
-- 구현 필요
-  - `binance_ws_user.py`: user data stream(WebSocket API) 구독/이벤트 라우팅
+상태: 부분 구현
 
-### monitoring/
-- 이번 턴 구현됨
-  - `metrics.py`: runtime counter + jsonl emit
-  - `alerts.py`: reconcile/drawdown alert rules
-- 구현 필요
-  - 텔레그램 송신 연동
-  - drift 기반 알림 규칙 결합
+## features/
+- `common.update_features` (지표 계산 핵심)
+- `offline.compute_offline`
+- `online.OnlineFeatureEngine`
+- `parity_test.replay_and_compare`
 
-### pipelines/
-- 구현됨
-  - train run artifact(meta/data/feature manifest) 저장
-  - trade runtime 조립 함수(시장데이터 + gapfill + reconcile + metrics/alerts)
-  - reconcile 1회 실행 유틸(`reconcile_once`)
-- 구현 필요
-  - 실제 event loop(run_forever), graceful shutdown, 주기 스케줄러
+상태: 구현됨
 
-### tests/
-- 구현됨
-  - data/features/env/run-manager/market-ws/reconcile/trade-runtime 테스트
-- 주의
-  - 현재 환경에서 numpy 미설치로 `pytest -q` 전체 실행 불가
-- 구현 필요
-  - marketdata reader loop 단위테스트
-  - REST retry/backoff 단위테스트(mock)
+## env/
+- `execution_model.ExecutionModel`
+- `reward.compute_reward`
+- `trading_env.TradingEnv`
+- `recorder.StepRecorder`
 
----
+상태: 구현됨
 
-## 2) 지금 바로 이어서 할 일 (우선순위)
-1. `integrations/binance_ws_user.py` 구현 (WebSocket API user stream subscribe.signature).
-2. `pipelines/trade.py` run loop 구현(시장데이터 소비, policy/risk/orders 호출, reconcile 주기 작업).
-3. `execution/orders.py` / `execution/risk.py` 실제 정책 연결.
-4. 모니터링-알림(`monitoring/*` → `integrations/telegram.py`) 연동.
+## agents/
+- `baselines`: BuyAndHold/MACrossover/VolTarget
+- `policy_wrapper.create_policy`: 정책 팩토리 + 액션 clamp
+- `sb3_ppo.PPOPolicy`, `sb3_sac.SACPolicy`: 선택적 SB3 로더 shim
 
-## 3) 수정 시 주의할 불변 규칙
-- 저장/학습 데이터 기준은 UTC, bar 식별자는 open_time(ms, UTC)
-- 실시간 kline은 `k.x == true`만 전략 입력
-- env는 관측 t, 체결은 t+1(next_open)
-- offline/online feature parity 유지
-- run artifact(meta/data/feature manifest) 누락 금지
+상태: train 기준 구현됨(SB3는 optional dependency)
+
+## pipelines/
+- `run_manager.*`: run id/meta/manifest/hash
+- `train.run`: run artifact 생성 + 합성 데이터 에피소드 실행 + `train_summary.json` 저장
+- `trade.build_runtime/reconcile_once`: 런타임 조립/리컨실
+
+상태: train 구현됨, trade 부분 구현
+
+## execution/
+- `marketdata`: close-candle 처리/gapfill/state 저장
+- `reconcile`: 내부/거래소 잔고 비교
+- `orders`, `risk`: placeholder
+
+상태: 부분 구현
+
+## integrations/
+- `binance_rest`, `binance_ws_market`: 구현
+- `binance_ws_user`, `telegram`: placeholder
+
+상태: 부분 구현
+
+## monitoring/
+- `metrics.RuntimeCounters`, `MetricsLogger`
+- `alerts.AlertEngine`
+- `drift`: placeholder
+
+상태: 부분 구현
+
+## 3) 우선순위 TODO
+
+1. `execution/orders.py`, `execution/risk.py` 구현
+2. `integrations/binance_ws_user.py` 구현
+3. `pipelines/trade.py` full event loop + graceful shutdown
+4. `integrations/telegram.py` 연동
+5. drift/alert 규칙 고도화
