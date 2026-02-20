@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import logging
 from pathlib import Path
+
+import pandas as pd
 
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.features.definitions import FEATURE_COLUMNS
+from src.coin_trading.pipelines.reporting import (
+    create_benchmark_comparison,
+    create_common_risk_plots,
+    create_split_equity_curves,
+    detect_overfit,
+    write_trade_stats_report,
+)
 from src.coin_trading.pipelines.run_manager import (
     implementation_hash,
     make_run_id,
@@ -23,19 +32,23 @@ from src.coin_trading.pipelines.train_flow.data import (
 )
 from src.coin_trading.pipelines.train_flow.train import train_sb3
 
+LOGGER = logging.getLogger(__name__)
+
+
+def _extract_traces(fold_summary: dict[str, object]) -> dict[str, pd.DataFrame]:
+    raw = fold_summary.pop("trace_frames", {})
+    traces: dict[str, pd.DataFrame] = {}
+    for split in ("train", "valid", "test"):
+        trace = raw.get(split) if isinstance(raw, dict) else None
+        traces[split] = trace if isinstance(trace, pd.DataFrame) else pd.DataFrame()
+    return traces
+
 
 def run() -> str:
     cfg = load_config()
     run_id = make_run_id()
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    plots_dir = run_dir / "plots"
-    reports_dir = run_dir / "reports"
-    artifacts_dir = run_dir / "artifacts"
-    plots_dir.mkdir(exist_ok=True)
-    reports_dir.mkdir(exist_ok=True)
-    artifacts_dir.mkdir(exist_ok=True)
-
     plots_dir = run_dir / "plots"
     reports_dir = run_dir / "reports"
     artifacts_dir = run_dir / "artifacts"
@@ -68,6 +81,44 @@ def run() -> str:
             except RuntimeError as exc:
                 status = "blocked_missing_dependencies"
                 fold_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
+
+            traces = _extract_traces(fold_summary)
+            has_any_trace = any(not trace.empty for trace in traces.values())
+            if not has_any_trace:
+                LOGGER.warning("No train/valid/test traces for walkforward_%02d. Generating placeholder reporting artifacts.", idx)
+
+            split_curve_files = create_split_equity_curves(fold_dir / "plots", traces)
+            risk_plot_files = create_common_risk_plots(fold_dir / "plots", traces)
+            overfit_warning = detect_overfit(
+                fold_summary.get("train_metrics", {}) if isinstance(fold_summary.get("train_metrics", {}), dict) else {},
+                fold_summary.get("test_metrics", {}) if isinstance(fold_summary.get("test_metrics", {}), dict) else {},
+            )
+            trade_trace = traces.get("test", pd.DataFrame())
+            if trade_trace.empty:
+                LOGGER.warning("Empty test trace for walkforward_%02d. Trade stats report will use fallback values.", idx)
+            trade_stats_report = write_trade_stats_report(fold_dir, trade_trace, overfit_warning=overfit_warning)
+            benchmark_png = create_benchmark_comparison(fold_dir / "plots", test_df, seed=cfg.seed)
+
+            fold_reporting = {
+                "plots": {
+                    "split_equity_curves": [f"plots/{name}" for name in split_curve_files],
+                    "drawdown_curve_png": f"plots/{risk_plot_files['drawdown_curve_png']}",
+                    "monthly_returns_heatmap_png": f"plots/{risk_plot_files['monthly_returns_heatmap_png']}",
+                    "benchmark_comparison_png": f"plots/{benchmark_png}",
+                },
+                "reports": {
+                    "trade_stats_html": trade_stats_report,
+                },
+                "trace_fallback": {
+                    "used": not has_any_trace,
+                    "message": "placeholder plots/statistics generated due to empty traces" if not has_any_trace else "none",
+                },
+            }
+
+            artifacts = fold_summary.get("artifacts", {}) if isinstance(fold_summary.get("artifacts"), dict) else {}
+            artifacts["reporting"] = fold_reporting
+            fold_summary["artifacts"] = artifacts
+
             wf_results.append(
                 {
                     "fold": idx,
@@ -88,6 +139,9 @@ def run() -> str:
         "results": wf_results,
         "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
     }
+    if status == "blocked_missing_dependencies" and wf_results:
+        train_summary["reason"] = "missing_dependencies"
+        train_summary["message"] = wf_results[0].get("summary", {}).get("message", "")
 
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
@@ -135,6 +189,8 @@ def run() -> str:
             "model_train": train_summary,
             "artifacts": {
                 "train_summary_report": "reports/model_train_summary.json",
+                "walkforward_reports": [f"walkforward_{result['fold']:02d}/reports/trade_stats.html" for result in wf_results],
+                "walkforward_plots_dir": [f"walkforward_{result['fold']:02d}/plots" for result in wf_results],
             },
         },
     )
