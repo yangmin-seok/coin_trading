@@ -7,7 +7,7 @@ from env.execution_model import ExecutionModel
 from env.recorder import StepRecorder
 from env.reward import compute_reward
 from env.spaces import OBS_COLUMNS
-from execution.state import PortfolioState
+from src.coin_trading.execution.state import PortfolioState
 
 
 class TradingEnv:

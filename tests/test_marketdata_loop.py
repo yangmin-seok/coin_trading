@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from execution.marketdata import MarketDataWS, MemoryStateStore
+from src.coin_trading.execution.marketdata import MarketDataWS, MemoryStateStore
 
 
 class FakeStream:

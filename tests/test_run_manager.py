@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pipelines.run_manager import write_data_manifest, write_feature_manifest, write_meta, write_train_manifest
+from src.coin_trading.pipelines.run_manager import write_data_manifest, write_feature_manifest, write_meta, write_train_manifest
 
 
 def test_run_manager_writes_manifests(tmp_path: Path):

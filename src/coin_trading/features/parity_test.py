@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from features.definitions import FEATURE_COLUMNS
-from features.offline import compute_offline
+from src.coin_trading.features.definitions import FEATURE_COLUMNS
+from src.coin_trading.features.offline import compute_offline
 
 
 def replay_and_compare(candles_df: pd.DataFrame, feature_engine, n_steps: int = 10_000, atol: float = 1e-9) -> None:

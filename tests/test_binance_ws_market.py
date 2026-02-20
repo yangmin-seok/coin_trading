@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from integrations.binance_ws_market import extract_kline_payload
+from src.coin_trading.integrations.binance_ws_market import extract_kline_payload
 
 
 def test_extract_kline_payload_combined_stream():

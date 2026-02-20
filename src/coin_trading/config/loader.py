@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from config.schema import AppConfig
+from src.coin_trading.config.schema import AppConfig
 
 
 ENV_PREFIX = "COIN_TRADING__"
@@ -20,7 +20,11 @@ def _set_nested(data: dict[str, Any], keys: list[str], value: Any) -> None:
 
 
 def load_config(path: str | Path = "config/default.yaml") -> AppConfig:
-    with Path(path).open("r", encoding="utf-8") as f:
+    config_path = Path(path)
+    if not config_path.exists():
+        config_path = Path(__file__).with_name("default.yaml")
+
+    with config_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
     for env_key, env_value in os.environ.items():

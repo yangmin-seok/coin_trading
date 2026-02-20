@@ -7,15 +7,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from agents.baselines import VolTarget
-from config.loader import load_config
-from config.schema import AppConfig
+from src.coin_trading.agents.baselines import VolTarget
+from src.coin_trading.config.loader import load_config
+from src.coin_trading.config.schema import AppConfig
 from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
 from env.trading_env import TradingEnv
-from features.definitions import FEATURE_COLUMNS
-from features.offline import compute_offline
-from pipelines.run_manager import (
+from src.coin_trading.features.definitions import FEATURE_COLUMNS
+from src.coin_trading.features.offline import compute_offline
+from src.coin_trading.pipelines.run_manager import (
     implementation_hash,
     make_run_id,
     write_data_manifest,
@@ -199,7 +199,8 @@ def run() -> str:
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    (run_dir / "config.yaml").write_text(Path("config/default.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    default_config_path = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
+    (run_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
     write_meta(run_dir)
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
@@ -226,7 +227,11 @@ def run() -> str:
             "windows": cfg.features.windows.model_dump(by_alias=True),
             "columns": [{"name": c, "dtype": "float64"} for c in FEATURE_COLUMNS],
             "implementation_hash": implementation_hash(
-                [Path("features/common.py"), Path("features/definitions.py"), Path("features/offline.py")]
+                [
+                    Path(__file__).resolve().parents[1] / "features" / "common.py",
+                    Path(__file__).resolve().parents[1] / "features" / "definitions.py",
+                    Path(__file__).resolve().parents[1] / "features" / "offline.py",
+                ]
             ),
         },
     )

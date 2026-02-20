@@ -4,17 +4,17 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
-from agents.baselines import VolTarget
-from config.loader import load_config
-from execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
-from execution.orders import OrderManager
-from execution.reconcile import Reconciler
-from execution.risk import RiskManager
-from execution.state import PortfolioState
-from features.online import OnlineFeatureEngine
-from integrations.binance_rest import BinanceRESTClient
-from monitoring.alerts import Alert, AlertEngine
-from monitoring.metrics import MetricsLogger
+from src.coin_trading.agents.baselines import VolTarget
+from src.coin_trading.config.loader import load_config
+from src.coin_trading.execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
+from src.coin_trading.execution.orders import OrderManager
+from src.coin_trading.execution.reconcile import Reconciler
+from src.coin_trading.execution.risk import RiskManager
+from src.coin_trading.execution.state import PortfolioState
+from src.coin_trading.features.online import OnlineFeatureEngine
+from src.coin_trading.integrations.binance_rest import BinanceRESTClient
+from src.coin_trading.monitoring.alerts import Alert, AlertEngine
+from src.coin_trading.monitoring.metrics import MetricsLogger
 
 
 @dataclass(slots=True)

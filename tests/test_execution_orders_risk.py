@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from execution.orders import OrderManager
-from execution.risk import RiskManager
-from execution.state import PortfolioState
+from src.coin_trading.execution.orders import OrderManager
+from src.coin_trading.execution.risk import RiskManager
+from src.coin_trading.execution.state import PortfolioState
 
 
 class DummyClient:

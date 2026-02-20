@@ -10,7 +10,7 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 아래는 저장소 루트 기준 구조입니다.
 
 ```text
-/workspace/coin_trading
+<repo-root>
 ├─ README.md
 ├─ pyproject.toml
 ├─ docs/
@@ -31,25 +31,27 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 
 핵심 포인트:
 
-- 실행 진입점(`pipelines.*`)은 `src/coin_trading` 아래에 있음.
-- 하지만 `data/`, `env/`는 저장소 루트 패키지이므로 import 경로에 루트가 포함되어야 함.
-- 따라서 실행 시 `src/coin_trading`에서 `PYTHONPATH=../..`를 주는 방식이 현재 구조와 가장 잘 맞습니다.
+- 실행 진입점은 `src.coin_trading.pipelines.*` 모듈 경로입니다.
+- 실행은 저장소 루트에서 `python -m src.coin_trading.pipelines.<name>` 형태로 수행합니다.
+- `PYTHONPATH`를 수동으로 설정하지 않아도 됩니다.
 
 ---
 
 ## 1) 경로 변경 반영: 실행 기준 위치
 
-최근 코드 구조 기준으로, 실행은 저장소 루트가 아니라 아래 경로를 기준으로 잡아야 합니다.
+최근 구조 기준 실행 기준은 **저장소 루트**입니다.
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
+cd .
 ```
 
-이 프로젝트는 모듈 import가 상대 경로(`config/default.yaml`, `agents.*`, `data.*`)를 함께 사용하므로, 아래처럼 `PYTHONPATH=../..`를 주고 실행하는 방식을 권장합니다.
+아래처럼 모듈 경로를 명시해 실행하세요.
 
 ```bash
-PYTHONPATH=../.. python -m pipelines.train
+python -m src.coin_trading.pipelines.train
 ```
+
+> 참고: 로컬 환경에서 패키지명이 `src.coin_traiding`로 설정되어 있다면, 아래 `src.coin_trading` 부분만 해당 이름으로 치환해 실행하세요.
 
 ---
 
@@ -71,16 +73,17 @@ python -m pip install -e '.[dev]'
 
 네트워크 제한 환경에서는 의존성 설치가 실패할 수 있습니다.
 
-### 2-3. 최소 실행 (경로 반영 버전)
+### 2-3. 최소 실행 (명시적 모듈 경로)
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
-PYTHONPATH=../.. python -m pipelines.train
+python -m src.coin_trading.pipelines.train
 ```
+
+> 참고: 로컬 환경에서 패키지명이 `src.coin_traiding`로 설정되어 있다면, 아래 `src.coin_trading` 부분만 해당 이름으로 치환해 실행하세요.
 
 성공하면 콘솔 마지막 줄에 `run_id`가 출력됩니다.
 
----
+요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
 
 ## 3) Train은 "목표"가 아니라 "런타임 점검 게이트"
 
@@ -95,7 +98,7 @@ PYTHONPATH=../.. python -m pipelines.train
 
 ### 3-1. 실행 순서 상세
 
-`pipelines.train.run()` 기준:
+`src.coin_trading.pipelines.train.run()` 기준:
 
 1. 설정 로드 (`load_config`)
 2. `run_id` 생성, `runs/<run_id>/` 생성
@@ -121,7 +124,7 @@ PYTHONPATH=../.. python -m pipelines.train
 
 ## 4) 실시간으로 "어떻게 주고받는지" (Runtime 이벤트 흐름)
 
-아래는 `pipelines.trade` 기준의 런타임 흐름입니다.
+아래는 `src.coin_trading.pipelines.trade` 기준의 런타임 흐름입니다.
 
 ### 4-1. 런타임 구성(build_runtime)
 
@@ -157,8 +160,7 @@ PYTHONPATH=../.. python -m pipelines.train
 ### 4-4. 최소 점검 커맨드
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
-PYTHONPATH=../.. python -c "from pipelines.trade import run; print(run())"
+python -c "from src.coin_trading.pipelines.trade import run; print(run())"
 ```
 
 이 명령은 runtime 조립이 되는지 빠르게 확인합니다.
@@ -167,7 +169,7 @@ PYTHONPATH=../.. python -c "from pipelines.trade import run; print(run())"
 
 ## 5) User Stream (실시간 체결/잔고 이벤트) 처리
 
-`integrations.binance_ws_user.BinanceUserWS`는 user stream payload를 이벤트 타입별로 분류하여 큐로 전달합니다.
+`src.coin_trading.integrations.binance_ws_user.BinanceUserWS`는 user stream payload를 이벤트 타입별로 분류하여 큐로 전달합니다.
 
 - 처리 이벤트 타입:
   - `outboundAccountPosition`
@@ -183,7 +185,7 @@ PYTHONPATH=../.. python -c "from pipelines.trade import run; print(run())"
 
 ## 6) 텔레그램 메시지는 어떻게 보내는가
 
-`integrations.telegram.TelegramSender`가 Telegram Bot API `sendMessage`를 직접 호출합니다.
+`src.coin_trading.integrations.telegram.TelegramSender`가 Telegram Bot API `sendMessage`를 직접 호출합니다.
 
 ### 6-1. 동작 방식
 
@@ -198,7 +200,7 @@ PYTHONPATH=../.. python -c "from pipelines.trade import run; print(run())"
 ### 6-2. 사용 예시
 
 ```python
-from integrations.telegram import TelegramSender
+from src.coin_trading.integrations.telegram import TelegramSender
 
 sender = TelegramSender(bot_token="<BOT_TOKEN>", chat_id="<CHAT_ID>")
 resp = sender.send_text("[coin_trading] runtime started")
@@ -221,8 +223,7 @@ print(resp)
 ### A. Train 구역
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
-RUN_ID=$(PYTHONPATH=../.. python -m pipelines.train | tail -n 1)
+RUN_ID=$(python -m src.coin_trading.pipelines.train | tail -n 1)
 cat runs/$RUN_ID/train_manifest.json
 cat runs/$RUN_ID/data_manifest.json
 ```
@@ -234,8 +235,7 @@ cat runs/$RUN_ID/data_manifest.json
 ### B. Runtime 구역
 
 ```bash
-cd /workspace/coin_trading/src/coin_trading
-PYTHONPATH=../.. python -c "from pipelines.trade import run; print(run())"
+python -c "from src.coin_trading.pipelines.trade import run; print(run())"
 ```
 
 체크 포인트:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from monitoring.alerts import AlertEngine
-from monitoring.metrics import MetricsLogger
+from src.coin_trading.monitoring.alerts import AlertEngine
+from src.coin_trading.monitoring.metrics import MetricsLogger
 
 
 def test_metrics_logger_writes_jsonl(tmp_path: Path):

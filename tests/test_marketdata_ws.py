@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
+from src.coin_trading.execution.marketdata import GapFiller, MarketDataWS, MemoryStateStore
 
 
 class FakeRestClient:

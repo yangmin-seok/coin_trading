@@ -5,7 +5,7 @@ import numpy as np
 from env.execution_model import ExecutionModel
 from env.spaces import OBS_COLUMNS
 from env.trading_env import TradingEnv
-from features.offline import compute_offline
+from src.coin_trading.features.offline import compute_offline
 
 
 def test_execution_model_limits_delta():
