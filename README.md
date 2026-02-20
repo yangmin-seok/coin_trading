@@ -27,16 +27,10 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 ### 2-2. 설치
 
 ```bash
-python -m venv .venv
-
-# bash / zsh
-source .venv/bin/activate
-
-# (선택) zsh에서 명시적으로 실행하고 싶다면
-# zsh -c "source .venv/bin/activate && python -m pip install -e .[dev]"
-
+conda create -n coin_trading python=3.11 -y
+conda activate coin_trading
 python -m pip install --upgrade pip
-python -m pip install -e .[dev]
+python -m pip install -e '.[dev]'
 ```
 
 네트워크 제한 환경에서는 의존성 설치가 실패할 수 있습니다.
