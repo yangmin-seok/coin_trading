@@ -23,7 +23,11 @@ def test_backtest_trace_artifacts(sample_candles, tmp_path):
     assert artifacts["drawdown_turnover_svg"].exists()
     assert artifacts["action_position_svg"].exists()
     assert artifacts["costs_svg"].exists()
+    assert artifacts["reward_components_timeseries_png"].exists()
 
     csv_text = artifacts["csv"].read_text(encoding="utf-8")
     assert "signal" in csv_text
+    assert "reward_pnl" in csv_text
+    assert "reward_cost" in csv_text
+    assert "reward_penalty" in csv_text
     assert any(label in csv_text for label in ["buy", "sell", "hold"])
