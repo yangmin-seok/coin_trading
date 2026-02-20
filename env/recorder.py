@@ -114,7 +114,8 @@ class StepRecorder:
         reward_equity_path.write_text(
             render_multi_line_svg(
                 df,
-                series=[("reward", "#1f77b4"), ("equity", "#2ca02c")],
+                primary_series=[("reward", "#1f77b4"), ("equity", "#2ca02c")],
+                secondary_series=[],
                 title="Reward / Equity",
             ),
             encoding="utf-8",
@@ -123,7 +124,8 @@ class StepRecorder:
         drawdown_turnover_path.write_text(
             render_multi_line_svg(
                 df,
-                series=[("drawdown", "#d62728"), ("action_effective_pos", "#9467bd")],
+                primary_series=[("drawdown", "#d62728")],
+                secondary_series=[("action_effective_pos", "#9467bd")],
                 title="Drawdown / Effective Position",
             ),
             encoding="utf-8",
@@ -132,7 +134,8 @@ class StepRecorder:
         action_position_path.write_text(
             render_multi_line_svg(
                 df,
-                series=[("action_target_pos", "#ff7f0e"), ("action_effective_pos", "#17becf")],
+                primary_series=[("action_target_pos", "#ff7f0e"), ("action_effective_pos", "#17becf")],
+                secondary_series=[],
                 title="Target vs Effective Position",
             ),
             encoding="utf-8",
@@ -141,7 +144,8 @@ class StepRecorder:
         costs_path.write_text(
             render_multi_line_svg(
                 df,
-                series=[("fee", "#8c564b"), ("slippage_cost", "#e377c2")],
+                primary_series=[("fee", "#8c564b"), ("slippage_cost", "#e377c2")],
+                secondary_series=[],
                 title="Trading Costs",
             ),
             encoding="utf-8",
