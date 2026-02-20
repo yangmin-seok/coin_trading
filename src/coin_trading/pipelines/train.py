@@ -7,9 +7,6 @@ import random
 from pathlib import Path
 from typing import Any
 
-import binascii
-import struct
-import zlib
 
 import numpy as np
 import pandas as pd
@@ -131,6 +128,126 @@ def ensure_training_candles(cfg: AppConfig, data_root: Path = Path("data/process
         return bootstrap_df.sort_values("open_time").reset_index(drop=True), True, False
 
 
+
+
+
+def _default_split_ranges_for_5m(anchor_end: pd.Timestamp) -> dict[str, tuple[str, str]]:
+    test_end = anchor_end.normalize()
+    test_start = test_end - pd.DateOffset(months=6) + pd.DateOffset(days=1)
+    val_end = test_start - pd.DateOffset(days=1)
+    val_start = val_end - pd.DateOffset(months=6) + pd.DateOffset(days=1)
+    train_end = val_start - pd.DateOffset(days=1)
+    train_start = train_end - pd.DateOffset(months=24) + pd.DateOffset(days=1)
+    return {
+        "train": (train_start.strftime("%Y-%m-%d"), train_end.strftime("%Y-%m-%d")),
+        "val": (val_start.strftime("%Y-%m-%d"), val_end.strftime("%Y-%m-%d")),
+        "test": (test_start.strftime("%Y-%m-%d"), test_end.strftime("%Y-%m-%d")),
+    }
+
+
+def _month_span(split_range: tuple[str, str]) -> float:
+    start = pd.Timestamp(split_range[0], tz="UTC")
+    end = pd.Timestamp(split_range[1], tz="UTC")
+    return (end - start).days / 30.44
+
+
+def _enforce_split_policy(cfg: AppConfig, candles_df: pd.DataFrame) -> dict[str, Any]:
+    if candles_df.empty or cfg.interval != "5m":
+        return {
+            "applied": False,
+            "split": {
+                "train": cfg.split.train,
+                "val": cfg.split.val,
+                "test": cfg.split.test,
+            },
+        }
+    train_months = _month_span(cfg.split.train)
+    val_months = _month_span(cfg.split.val)
+    test_months = _month_span(cfg.split.test)
+    valid = train_months >= 24.0 and 3.0 <= val_months <= 6.5 and 3.0 <= test_months <= 6.5
+    if valid:
+        return {
+            "applied": False,
+            "split": {
+                "train": cfg.split.train,
+                "val": cfg.split.val,
+                "test": cfg.split.test,
+            },
+        }
+    anchor_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True)
+    policy = _default_split_ranges_for_5m(anchor_end)
+    return {"applied": True, "split": policy}
+
+
+def _fit_feature_scaler(train_features: pd.DataFrame) -> dict[str, pd.Series]:
+    mu = train_features[FEATURE_COLUMNS].mean()
+    sigma = train_features[FEATURE_COLUMNS].std(ddof=0).replace(0, 1.0).fillna(1.0)
+    return {"mu": mu, "sigma": sigma}
+
+
+def _apply_feature_scaler(features: pd.DataFrame, scaler: dict[str, pd.Series]) -> pd.DataFrame:
+    scaled = features.copy()
+    scaled[FEATURE_COLUMNS] = (scaled[FEATURE_COLUMNS] - scaler["mu"]) / scaler["sigma"]
+    return scaled
+
+
+def _validate_no_lookahead(candles_df: pd.DataFrame, sample_points: int = 10) -> dict[str, Any]:
+    if candles_df.empty or len(candles_df) < 2:
+        return {"checked": 0, "passed": True}
+    full_features = compute_offline(candles_df)
+    indices = np.linspace(1, len(candles_df) - 1, num=min(sample_points, len(candles_df) - 1), dtype=int)
+    for idx in sorted(set(int(i) for i in indices)):
+        prefix_features = compute_offline(candles_df.iloc[: idx + 1].reset_index(drop=True))
+        a = full_features.iloc[idx][FEATURE_COLUMNS].astype(float)
+        b = prefix_features.iloc[-1][FEATURE_COLUMNS].astype(float)
+        if not np.allclose(a.to_numpy(), b.to_numpy(), equal_nan=True):
+            raise ValueError(f"lookahead_detected_at_index={idx}")
+    return {"checked": int(len(set(indices.tolist()))), "passed": True}
+
+
+def _build_regime_coverage(candles_df: pd.DataFrame, split_df: pd.DataFrame) -> dict[str, Any]:
+    if split_df.empty:
+        return {"rows": 0, "years": {}, "volatility": {}}
+    work = split_df.copy()
+    work["year"] = pd.to_datetime(work["open_time"], unit="ms", utc=True).dt.year.astype(str)
+    close = work["close"].astype(float)
+    work["logret"] = np.log(close / close.shift(1))
+    vol = work["logret"].rolling(96, min_periods=10).std()
+    q = vol.quantile([0.33, 0.66]).fillna(0.0).to_list()
+    bins = [-np.inf, q[0], q[1], np.inf]
+    labels = ["low", "mid", "high"]
+    work["vol_regime"] = pd.cut(vol, bins=bins, labels=labels)
+    year_counts = {str(k): int(v) for k, v in work["year"].value_counts().sort_index().items()}
+    vol_counts = {str(k): int(v) for k, v in work["vol_regime"].value_counts(dropna=True).items()}
+    return {"rows": int(len(work)), "years": year_counts, "volatility": vol_counts}
+
+
+def _build_walkforward_splits(cfg: AppConfig, candles_df: pd.DataFrame) -> list[dict[str, tuple[str, str]]]:
+    policy = _enforce_split_policy(cfg, candles_df)["split"]
+    train_start, train_end = policy["train"]
+    val_start, val_end = policy["val"]
+    test_start, test_end = policy["test"]
+    base = {
+        "train": (train_start, train_end),
+        "val": (val_start, val_end),
+        "test": (test_start, test_end),
+    }
+    runs = []
+    shifts = [2 * i for i in range(max(1, cfg.train.walkforward_runs))]
+    for shift in reversed(shifts):
+        if shift == 0:
+            runs.append(base)
+            continue
+        s = {
+            k: (
+                (pd.Timestamp(v[0], tz="UTC") - pd.DateOffset(months=shift)).strftime("%Y-%m-%d"),
+                (pd.Timestamp(v[1], tz="UTC") - pd.DateOffset(months=shift)).strftime("%Y-%m-%d"),
+            )
+            for k, v in base.items()
+        }
+        runs.append(s)
+    return runs
+
 def _split_by_date(candles_df: pd.DataFrame, split_range: tuple[str, str]) -> pd.DataFrame:
     if candles_df.empty:
         return candles_df.copy()
@@ -139,7 +256,7 @@ def _split_by_date(candles_df: pd.DataFrame, split_range: tuple[str, str]) -> pd
     return candles_df.loc[mask].reset_index(drop=True)
 
 
-def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> dict[str, Any]:
+def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig, split_policy: dict[str, tuple[str, str]] | None = None) -> dict[str, Any]:
     if candles_df.empty:
         return {
             "rows": 0,
@@ -148,6 +265,7 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
             "features": {"rows": 0, "nan_ratio_mean": None},
         }
 
+    split_policy = split_policy or {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
     dates = pd.to_datetime(candles_df["open_time"], unit="ms", utc=True).dt.strftime("%Y-%m-%d")
 
     def _rows_in_range(start: str, end: str) -> int:
@@ -163,9 +281,9 @@ def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> 
             "end_open_time": int(candles_df["open_time"].iloc[-1]),
         },
         "splits": {
-            "train": {"range": list(cfg.split.train), "rows": _rows_in_range(*cfg.split.train)},
-            "val": {"range": list(cfg.split.val), "rows": _rows_in_range(*cfg.split.val)},
-            "test": {"range": list(cfg.split.test), "rows": _rows_in_range(*cfg.split.test)},
+            "train": {"range": list(split_policy["train"]), "rows": _rows_in_range(*split_policy["train"])},
+            "val": {"range": list(split_policy["val"]), "rows": _rows_in_range(*split_policy["val"])},
+            "test": {"range": list(split_policy["test"]), "rows": _rows_in_range(*split_policy["test"])},
         },
         "features": {
             "rows": int(len(features_df)),
@@ -635,17 +753,22 @@ def _train_sb3(
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
     cfg: AppConfig,
-    plots_dir: Path,
-    reports_dir: Path,
-    artifacts_dir: Path,
+    run_dir: Path,
+    fold_name: str = "base",
 ) -> dict[str, Any]:
+    run_dir.mkdir(parents=True, exist_ok=True)
     if train_df.empty or val_df.empty:
         return {"enabled": False, "reason": "insufficient_split_rows"}
 
     _seed_everything(cfg.train.seed if cfg.train.seed is not None else cfg.seed)
-    train_features = compute_offline(train_df)
-    val_features = compute_offline(val_df)
-    test_features = compute_offline(test_df) if not test_df.empty else pd.DataFrame()
+    lookahead_validation = _validate_no_lookahead(train_df)
+    train_features_raw = compute_offline(train_df)
+    val_features_raw = compute_offline(val_df)
+    test_features_raw = compute_offline(test_df) if not test_df.empty else pd.DataFrame()
+    scaler = _fit_feature_scaler(train_features_raw)
+    train_features = _apply_feature_scaler(train_features_raw, scaler)
+    val_features = _apply_feature_scaler(val_features_raw, scaler)
+    test_features = _apply_feature_scaler(test_features_raw, scaler) if not test_df.empty else pd.DataFrame()
 
     train_env = GymTradingEnv(train_df, train_features, ExecutionModel(), seed=cfg.seed)
     model = _build_sb3_algo(cfg.train.algo, train_env, cfg)
@@ -782,6 +905,8 @@ def _train_sb3(
     (run_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
 
     summary = {
+        "fold_name": fold_name,
+        "lookahead_validation": lookahead_validation,
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
@@ -839,22 +964,27 @@ def run() -> str:
     )
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
-    candles_df = preprocess_training_candles(candles_df)
-    diagnostics = generate_data_diagnostics(candles_df, run_dir, cfg)
-    dataset_summary = summarize_dataset_for_training(candles_df, cfg)
-
-    all_features_df = compute_offline(candles_df) if not candles_df.empty else pd.DataFrame(columns=FEATURE_COLUMNS)
-    feature_viz = _write_feature_visualizations(all_features_df, run_dir)
-    cost_impact = _run_transaction_cost_impact_experiment(candles_df, all_features_df, run_dir)
-
-    train_df = _split_by_date(candles_df, cfg.split.train)
-    val_df = _split_by_date(candles_df, cfg.split.val)
-    test_df = _split_by_date(candles_df, cfg.split.test)
+    split_policy_info = _enforce_split_policy(cfg, candles_df)
+    split_policy = split_policy_info["split"]
+    dataset_summary = summarize_dataset_for_training(candles_df, cfg, split_policy=split_policy)
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
+    walkforward_results: list[dict[str, Any]] = []
     if dataset_summary["rows"] > 0:
         try:
-            train_summary = _train_sb3(train_df, val_df, test_df, cfg, plots_dir, reports_dir, artifacts_dir)
+            for idx, split in enumerate(_build_walkforward_splits(cfg, candles_df), start=1):
+                train_df = _split_by_date(candles_df, split["train"])
+                val_df = _split_by_date(candles_df, split["val"])
+                test_df = _split_by_date(candles_df, split["test"])
+                fold_summary = _train_sb3(train_df, val_df, test_df, cfg, run_dir / f"wf_{idx}", fold_name=f"wf_{idx}")
+                fold_summary["split"] = split
+                fold_summary["regime_coverage"] = {
+                    "train": _build_regime_coverage(candles_df, train_df),
+                    "val": _build_regime_coverage(candles_df, val_df),
+                    "test": _build_regime_coverage(candles_df, test_df),
+                }
+                walkforward_results.append(fold_summary)
+            train_summary = {"enabled": True, "walkforward": walkforward_results, "folds": len(walkforward_results)}
         except RuntimeError as exc:
             status = "blocked_missing_dependencies"
             train_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
@@ -873,7 +1003,7 @@ def run() -> str:
             "processed": {"time_unit": "ms"},
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
-            "diagnostics": diagnostics,
+            "split_policy": split_policy_info,
             "dataset": dataset_summary,
         },
     )
