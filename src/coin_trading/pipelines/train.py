@@ -21,6 +21,13 @@ from src.coin_trading.pipelines.run_manager import (
     write_meta,
     write_train_manifest,
 )
+from src.coin_trading.pipelines.reporting import (
+    create_benchmark_comparison,
+    create_common_risk_plots,
+    create_split_equity_curves,
+    detect_overfit,
+    write_trade_stats_report,
+)
 from data.io import write_candles_parquet
 from env.execution_model import ExecutionModel
 
@@ -190,7 +197,13 @@ def _build_sb3_algo(algo_name: str, env: GymTradingEnv, cfg: AppConfig):
     raise ValueError(f"unsupported algo: {algo_name}")
 
 
-def _rollout_model(model: Any, candles_df: pd.DataFrame, features_df: pd.DataFrame, cfg: AppConfig, artifacts_dir: Path | None = None) -> dict[str, Any]:
+def _rollout_model(
+    model: Any,
+    candles_df: pd.DataFrame,
+    features_df: pd.DataFrame,
+    cfg: AppConfig,
+    artifacts_dir: Path | None = None,
+) -> tuple[dict[str, Any], pd.DataFrame]:
     eval_env = GymTradingEnv(candles_df, features_df, ExecutionModel(), seed=cfg.seed)
     obs, _ = eval_env.reset(seed=cfg.seed)
     done = False
@@ -201,7 +214,14 @@ def _rollout_model(model: Any, candles_df: pd.DataFrame, features_df: pd.DataFra
 
     trace = eval_env.env.recorder.to_dataframe()
     if trace.empty:
-        return {"steps": 0, "final_equity": 0.0, "sharpe": 0.0, "max_drawdown": 0.0, "turnover": 0.0, "win_rate": 0.0}
+        return {
+            "steps": 0,
+            "final_equity": 0.0,
+            "sharpe": 0.0,
+            "max_drawdown": 0.0,
+            "turnover": 0.0,
+            "win_rate": 0.0,
+        }, trace
 
     reward = trace["reward"].astype(float)
     sharpe = 0.0
@@ -218,7 +238,7 @@ def _rollout_model(model: Any, candles_df: pd.DataFrame, features_df: pd.DataFra
     if artifacts_dir is not None:
         files = eval_env.env.recorder.write_trace_artifacts(artifacts_dir)
         metrics["artifacts"] = {k: str(v) for k, v in files.items()}
-    return metrics
+    return metrics, trace
 
 
 def _render_learning_curve_svg(history: list[dict[str, Any]], out_path: Path) -> None:
@@ -307,7 +327,7 @@ def _train_sb3(
         chunk = min(interval, total - trained)
         model.learn(total_timesteps=chunk, reset_num_timesteps=False)
         trained += chunk
-        val_metrics = _rollout_model(model, val_df, val_features, cfg)
+        val_metrics, _ = _rollout_model(model, val_df, val_features, cfg)
         history.append({"timesteps": trained, "val": val_metrics})
 
         if val_metrics["sharpe"] > best_sharpe:
@@ -328,8 +348,19 @@ def _train_sb3(
     best_model_path = run_dir / "best_model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = _rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    test_metrics = _rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    train_metrics, train_trace = _rollout_model(best_model, train_df, train_features, cfg, run_dir / "train_trace")
+    val_final, val_trace = _rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
+    if not test_df.empty:
+        test_metrics, test_trace = _rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace")
+    else:
+        test_metrics, test_trace = {"enabled": False}, pd.DataFrame()
+
+    split_traces = {"train": train_trace, "valid": val_trace, "test": test_trace}
+    split_equity_artifacts = create_split_equity_curves(run_dir, split_traces)
+    common_risk_artifacts = create_common_risk_plots(run_dir, split_traces)
+    overfit_warning = detect_overfit(train_metrics, test_metrics)
+    trade_stats_artifact = write_trade_stats_report(run_dir, test_trace if not test_trace.empty else val_trace, overfit_warning)
+    benchmark_artifact = create_benchmark_comparison(run_dir, test_df if not test_df.empty else val_df, cfg.seed)
 
     curve_rows = [
         {
@@ -356,18 +387,25 @@ def _train_sb3(
         "checkpoints": checkpoints,
         "history": history,
         "val_metrics": val_final,
+        "train_metrics": train_metrics,
         "test_metrics": test_metrics,
         "artifacts": {
             "learning_curve_csv": "learning_curve.csv",
             "learning_curve_json": "learning_curve.json",
             "learning_curve_svg": "learning_curve.svg",
             "best_model": "best_model.zip" if best_model_path.exists() else None,
+            "train_trace_dir": "train_trace",
             "val_trace_dir": "val_trace",
             "test_trace_dir": "test_trace",
+            "split_equity_curves": split_equity_artifacts,
+            **common_risk_artifacts,
+            "trade_stats_report": trade_stats_artifact,
+            "benchmark_comparison_png": benchmark_artifact,
         },
+        "overfit_warning": overfit_warning,
     }
     (run_dir / "evaluation_metrics.json").write_text(
-        json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
+        json.dumps({"history": history, "train": train_metrics, "val": val_final, "test": test_metrics, "overfit_warning": overfit_warning}, indent=2),
         encoding="utf-8",
     )
     return summary

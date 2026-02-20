@@ -45,8 +45,16 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
         assert (run_dir / "learning_curve.svg").exists()
         assert (run_dir / "evaluation_metrics.json").exists()
         assert (run_dir / "best_model.zip").exists()
+        assert (run_dir / "train_trace" / "reward_equity.svg").exists()
         assert (run_dir / "val_trace" / "reward_equity.svg").exists()
         assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "equity_curve_train.png").exists()
+        assert (run_dir / "equity_curve_valid.png").exists()
+        assert (run_dir / "equity_curve_test.png").exists()
+        assert (run_dir / "drawdown_curve.png").exists()
+        assert (run_dir / "monthly_returns_heatmap.png").exists()
+        assert (run_dir / "benchmark_comparison.png").exists()
+        assert (run_dir / "reports" / "trade_stats.html").exists()
     else:
         assert model_train["enabled"] is False
         assert model_train["reason"] == "missing_dependencies"
