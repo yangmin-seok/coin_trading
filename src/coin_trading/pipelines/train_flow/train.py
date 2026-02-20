@@ -60,6 +60,13 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     if train_df.empty or val_df.empty:
         return {"enabled": False, "reason": "insufficient_split_rows"}
 
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    plots_dir = run_dir / "plots"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
     seed_everything(cfg.train.seed if cfg.train.seed is not None else cfg.seed)
     train_features = compute_features(train_df)
     val_features = compute_features(val_df)
@@ -90,46 +97,47 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         if val_metrics["sharpe"] > best_sharpe:
             best_sharpe = val_metrics["sharpe"]
             stale = 0
-            model.save(str(run_dir / "best_model"))
+            model.save(str(artifacts_dir / "model"))
         else:
             stale += 1
 
         if trained % ckpt_interval == 0 or trained == total:
             ckpt_name = f"checkpoint_{trained}.zip"
-            model.save(str(run_dir / ckpt_name.replace(".zip", "")))
-            checkpoints.append(ckpt_name)
+            model.save(str(artifacts_dir / ckpt_name.replace(".zip", "")))
+            checkpoints.append(f"artifacts/{ckpt_name}")
 
         if cfg.train.early_stop > 0 and stale >= cfg.train.early_stop:
             break
 
-    best_model_path = run_dir / "best_model.zip"
+    best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
-    val_final = rollout_model(best_model, val_df, val_features, cfg, run_dir / "val_trace")
-    test_metrics = rollout_model(best_model, test_df, test_features, cfg, run_dir / "test_trace") if not test_df.empty else {"enabled": False}
+    val_final = rollout_model(best_model, val_df, val_features, cfg, reports_dir / "val_trace")
+    test_metrics = rollout_model(best_model, test_df, test_features, cfg, reports_dir / "test_trace") if not test_df.empty else {"enabled": False}
 
-    write_learning_curve_artifacts(history, run_dir)
+    write_learning_curve_artifacts(history, reports_dir, plots_dir)
 
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
         "steps": int(trained),
-        "best_model": "best_model.zip" if best_model_path.exists() else None,
+        "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
         "val_metrics": val_final,
         "test_metrics": test_metrics,
         "artifacts": {
-            "learning_curve_csv": "learning_curve.csv",
-            "learning_curve_json": "learning_curve.json",
-            "learning_curve_svg": "learning_curve.svg",
-            "best_model": "best_model.zip" if best_model_path.exists() else None,
-            "val_trace_dir": "val_trace",
-            "test_trace_dir": "test_trace",
+            "learning_curve_csv": "reports/learning_curve.csv",
+            "learning_curve_json": "reports/learning_curve.json",
+            "learning_curve_svg": "plots/learning_curve.svg",
+            "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
+            "val_trace_dir": "reports/val_trace",
+            "test_trace_dir": "reports/test_trace",
+            "evaluation_metrics": "artifacts/metrics.json",
         },
     }
-    (run_dir / "evaluation_metrics.json").write_text(
+    (artifacts_dir / "metrics.json").write_text(
         json.dumps({"history": history, "val": val_final, "test": test_metrics}, indent=2),
         encoding="utf-8",
     )
