@@ -36,7 +36,15 @@ def run() -> str:
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(run_dir)
+    write_meta(
+        run_dir,
+        extra={
+            "mode": cfg.mode,
+            "symbol": cfg.symbol,
+            "interval": cfg.interval,
+            "seed": cfg.train.seed if cfg.train.seed is not None else cfg.seed,
+        },
+    )
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
