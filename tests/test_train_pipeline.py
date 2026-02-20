@@ -5,7 +5,13 @@ from pathlib import Path
 import pandas as pd
 
 from src.coin_trading.config.loader import load_config
-from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, split_by_date, summarize_dataset
+from src.coin_trading.pipelines.train_flow.data import (
+    build_walkforward_splits,
+    ensure_training_candles,
+    plan_walkforward_splits,
+    split_by_date,
+    summarize_dataset,
+)
 from src.coin_trading.pipelines.train_flow.env import build_env
 from src.coin_trading.pipelines.train_flow.features import compute_features
 

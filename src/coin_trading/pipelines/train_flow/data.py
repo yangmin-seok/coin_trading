@@ -6,6 +6,7 @@
 - split_by_date
 - validate_split_policy
 - build_walkforward_splits
+- plan_walkforward_splits
 - summarize_dataset
 
 비공개 API:
@@ -159,6 +160,7 @@ def build_walkforward_splits(
     candles_df: pd.DataFrame,
     split: dict[str, tuple[str, str]],
     target_runs: int,
+    step_days: int | None = None,
     min_days: dict[str, int] | None = None,
 ) -> list[dict[str, tuple[str, str]]]:
     if target_runs < 1:
@@ -174,7 +176,7 @@ def build_walkforward_splits(
 
     val_days = (val_end - val_start).days + 1
     test_days = (test_end - test_start).days + 1
-    step_days = max(1, val_days)
+    step_days = max(1, int(step_days) if step_days is not None else val_days)
 
     if candles_df.empty:
         data_end = test_end + pd.Timedelta(days=step_days * (target_runs - 1))
@@ -197,6 +199,135 @@ def build_walkforward_splits(
     if not splits:
         splits.append(split)
     return splits
+
+
+def plan_walkforward_splits(
+    candles_df: pd.DataFrame,
+    split: dict[str, tuple[str, str]],
+    target_runs: int,
+    min_folds: int = 3,
+    step_days: int | None = None,
+    min_days: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """워크포워드 split 정책을 계산하고 부족 사유를 함께 반환한다.
+
+    정책 우선순위:
+    - C: step 이동 단위 분리(기본값은 val 기간)
+    - B: val/test 기간 축소(기본 75% → 50% → 25%)
+    - A: 그래도 부족하면 데이터 커버리지 확장 필요로 판단
+    """
+
+    min_days = min_days or {"train": 60, "val": 14, "test": 14}
+    validate_split_policy(split, candles_df, min_days=min_days)
+
+    val_start = pd.Timestamp(split["val"][0], tz="UTC")
+    val_end = pd.Timestamp(split["val"][1], tz="UTC")
+    test_start = pd.Timestamp(split["test"][0], tz="UTC")
+    test_end = pd.Timestamp(split["test"][1], tz="UTC")
+
+    val_days = int((val_end - val_start).days) + 1
+    test_days = int((test_end - test_start).days) + 1
+    desired_folds = max(int(target_runs), int(min_folds))
+
+    if candles_df.empty:
+        data_start = pd.Timestamp(split["train"][0], tz="UTC")
+        data_end = test_end + pd.Timedelta(days=(desired_folds - 1) * max(1, val_days))
+    else:
+        data_start = pd.to_datetime(candles_df["open_time"].min(), unit="ms", utc=True).normalize()
+        data_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True).normalize()
+
+    notes: list[str] = []
+    chosen_step_days = max(1, int(step_days) if step_days is not None else val_days)
+    policy_split = {k: tuple(v) for k, v in split.items()}
+
+    def _folds_for(candidate_split: dict[str, tuple[str, str]], candidate_step_days: int) -> int:
+        return len(
+            build_walkforward_splits(
+                candles_df,
+                candidate_split,
+                target_runs=desired_folds,
+                step_days=candidate_step_days,
+                min_days=min_days,
+            )
+        )
+
+    folds = _folds_for(policy_split, chosen_step_days)
+
+    # C) step 단위를 val 기간과 분리해서 재설정
+    if folds < desired_folds and desired_folds > 1:
+        total_forward_days = int((data_end - test_end).days)
+        candidate_step = total_forward_days // (desired_folds - 1)
+        if candidate_step >= 1:
+            adjusted_step = min(chosen_step_days, candidate_step)
+            if adjusted_step < chosen_step_days:
+                notes.append(
+                    f"option_C_applied: step_days {chosen_step_days} -> {adjusted_step} (val_days={val_days})"
+                )
+                chosen_step_days = adjusted_step
+                folds = _folds_for(policy_split, chosen_step_days)
+
+    # B) val/test 기간 축소(반기→분기 등)
+    if folds < desired_folds:
+        for ratio in (0.75, 0.5, 0.25):
+            new_val_days = max(int(min_days.get("val", 1)), int(round(val_days * ratio)))
+            new_test_days = max(int(min_days.get("test", 1)), int(round(test_days * ratio)))
+            cand_val_end = val_start + pd.Timedelta(days=new_val_days - 1)
+            cand_test_start = cand_val_end + pd.Timedelta(days=1)
+            cand_test_end = cand_test_start + pd.Timedelta(days=new_test_days - 1)
+            candidate_split = {
+                "train": (split["train"][0], (val_start - pd.Timedelta(days=1)).strftime("%Y-%m-%d")),
+                "val": (val_start.strftime("%Y-%m-%d"), cand_val_end.strftime("%Y-%m-%d")),
+                "test": (cand_test_start.strftime("%Y-%m-%d"), cand_test_end.strftime("%Y-%m-%d")),
+            }
+            try:
+                validate_split_policy(candidate_split, candles_df, min_days=min_days)
+            except ValueError:
+                continue
+            candidate_folds = _folds_for(candidate_split, chosen_step_days)
+            if candidate_folds > folds:
+                notes.append(
+                    "option_B_applied: "
+                    f"val_days {val_days} -> {new_val_days}, test_days {test_days} -> {new_test_days}"
+                )
+                policy_split = candidate_split
+                folds = candidate_folds
+            if folds >= desired_folds:
+                break
+
+    final_splits = build_walkforward_splits(
+        candles_df,
+        policy_split,
+        target_runs=desired_folds,
+        step_days=chosen_step_days,
+        min_days=min_days,
+    )
+    insufficient_reason = None
+    if len(final_splits) < desired_folds:
+        insufficient_reason = (
+            f"requested={desired_folds}, actual={len(final_splits)}; "
+            "data coverage is insufficient for current split policy. "
+            "option_A_required: extend training data collection range."
+        )
+
+    return {
+        "splits": final_splits,
+        "policy": {
+            "requested_runs": int(target_runs),
+            "minimum_required_runs": int(min_folds),
+            "desired_runs": int(desired_folds),
+            "actual_runs": int(len(final_splits)),
+            "data_coverage": {
+                "start": data_start.strftime("%Y-%m-%d"),
+                "end": data_end.strftime("%Y-%m-%d"),
+                "days": int((data_end - data_start).days) + 1,
+            },
+            "base_lengths_days": {"val": int(val_days), "test": int(test_days)},
+            "selected_step_days": int(chosen_step_days),
+            "selected_split": {k: list(v) for k, v in policy_split.items()},
+            "adjustment_notes": notes,
+            "insufficient_reason": insufficient_reason,
+        },
+    }
 
 
 def summarize_dataset(candles_df: pd.DataFrame, cfg: AppConfig) -> dict[str, Any]:
