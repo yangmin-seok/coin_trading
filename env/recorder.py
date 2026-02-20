@@ -16,7 +16,7 @@ class StepRecorder:
         return pd.DataFrame(self.rows)
 
     def write_trace_artifacts(self, out_dir: str | Path) -> dict[str, Path]:
-        """Write trace artifacts for quick inspection (CSV + simple SVG chart)."""
+        """Write trace artifacts for quick inspection (CSV + multiple SVG charts)."""
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
 
@@ -24,9 +24,25 @@ class StepRecorder:
         if df.empty:
             csv_path = out / "trace.csv"
             csv_path.write_text("", encoding="utf-8")
-            svg_path = out / "reward_equity.svg"
-            svg_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
-            return {"csv": csv_path, "svg": svg_path}
+            reward_equity_path = out / "reward_equity.svg"
+            reward_equity_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
+            drawdown_turnover_path = out / "drawdown_turnover.svg"
+            drawdown_turnover_path.write_text(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>",
+                encoding="utf-8",
+            )
+            action_position_path = out / "action_position.svg"
+            action_position_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
+            costs_path = out / "costs.svg"
+            costs_path.write_text("<svg xmlns='http://www.w3.org/2000/svg' width='800' height='320'></svg>", encoding="utf-8")
+            return {
+                "csv": csv_path,
+                "svg": reward_equity_path,
+                "reward_equity_svg": reward_equity_path,
+                "drawdown_turnover_svg": drawdown_turnover_path,
+                "action_position_svg": action_position_path,
+                "costs_svg": costs_path,
+            }
 
         if "filled_qty" in df.columns:
             def _signal(v: float) -> str:
@@ -42,20 +58,62 @@ class StepRecorder:
         csv_path = out / "trace.csv"
         df.to_csv(csv_path, index=False)
 
-        svg_path = out / "reward_equity.svg"
-        svg_path.write_text(_render_reward_equity_svg(df), encoding="utf-8")
-        return {"csv": csv_path, "svg": svg_path}
+        reward_equity_path = out / "reward_equity.svg"
+        reward_equity_path.write_text(
+            _render_multi_line_svg(
+                df,
+                series=[("reward", "#1f77b4"), ("equity", "#2ca02c")],
+                title="Reward / Equity",
+            ),
+            encoding="utf-8",
+        )
+        drawdown_turnover_path = out / "drawdown_turnover.svg"
+        drawdown_turnover_path.write_text(
+            _render_multi_line_svg(
+                df,
+                series=[("drawdown", "#d62728"), ("action_effective_pos", "#9467bd")],
+                title="Drawdown / Effective Position",
+            ),
+            encoding="utf-8",
+        )
+        action_position_path = out / "action_position.svg"
+        action_position_path.write_text(
+            _render_multi_line_svg(
+                df,
+                series=[("action_target_pos", "#ff7f0e"), ("action_effective_pos", "#17becf")],
+                title="Target vs Effective Position",
+            ),
+            encoding="utf-8",
+        )
+        costs_path = out / "costs.svg"
+        costs_path.write_text(
+            _render_multi_line_svg(
+                df,
+                series=[("fee", "#8c564b"), ("slippage_cost", "#e377c2")],
+                title="Trading Costs",
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "csv": csv_path,
+            "svg": reward_equity_path,
+            "reward_equity_svg": reward_equity_path,
+            "drawdown_turnover_svg": drawdown_turnover_path,
+            "action_position_svg": action_position_path,
+            "costs_svg": costs_path,
+        }
 
 
-def _render_reward_equity_svg(df: pd.DataFrame) -> str:
+def _render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title: str) -> str:
     width, height = 900, 340
     pad_l, pad_r, pad_t, pad_b = 50, 20, 20, 40
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
-    x = list(range(len(df)))
-    rewards = [float(v) for v in df.get("reward", pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
-    equities = [float(v) for v in df.get("equity", pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
+    y_data = {
+        name: [float(v) for v in df.get(name, pd.Series([0.0] * len(df))).fillna(0.0).tolist()]
+        for name, _ in series
+    }
 
     def _scale(vals: list[float], invert: bool = False) -> list[float]:
         vmin, vmax = min(vals), max(vals)
@@ -68,8 +126,7 @@ def _render_reward_equity_svg(df: pd.DataFrame) -> str:
             out.append(y)
         return out
 
-    ys_reward = _scale(rewards, invert=True)
-    ys_equity = _scale(equities, invert=True)
+    scaled = {name: _scale(vals, invert=True) for name, vals in y_data.items()}
 
     def _line(vals: list[float], color: str) -> str:
         if not vals:
@@ -86,15 +143,18 @@ def _render_reward_equity_svg(df: pd.DataFrame) -> str:
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
 
-    labels = (
-        "<text x='55' y='18' font-size='12' fill='#1f77b4'>reward</text>"
-        "<text x='120' y='18' font-size='12' fill='#2ca02c'>equity</text>"
-        f"<text x='{pad_l}' y='{height-8}' font-size='11' fill='#666'>step</text>"
-    )
+    legend = []
+    for i, (name, color) in enumerate(series):
+        legend.append(f"<text x='{55 + i * 120}' y='18' font-size='12' fill='{color}'>{name}</text>")
+    labels = f"<text x='{pad_l}' y='{height-8}' font-size='11' fill='#666'>step</text>"
+    labels += "".join(legend)
+    labels += f"<text x='{pad_l}' y='{pad_t + 12}' font-size='12' fill='#222'>{title}</text>"
+
+    lines = "".join(_line(scaled[name], color) for name, color in series)
 
     return (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
         f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>"
-        f"{guides}{_line(ys_reward, '#1f77b4')}{_line(ys_equity, '#2ca02c')}{labels}"
+        f"{guides}{lines}{labels}"
         "</svg>"
     )

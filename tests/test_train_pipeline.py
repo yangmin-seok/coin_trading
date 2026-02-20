@@ -34,9 +34,16 @@ def test_training_probe_writes_reward_artifacts(sample_candles, tmp_path: Path):
     assert summary["model"] == "VolTarget-baseline"
 
     trace_path = tmp_path / summary["artifacts"]["trace_csv"]
-    svg_path = tmp_path / summary["artifacts"]["reward_equity_svg"]
+    reward_equity_path = tmp_path / summary["artifacts"]["reward_equity_svg"]
+    drawdown_turnover_path = tmp_path / summary["artifacts"]["drawdown_turnover_svg"]
+    action_position_path = tmp_path / summary["artifacts"]["action_position_svg"]
+    costs_path = tmp_path / summary["artifacts"]["costs_svg"]
+
     assert trace_path.exists()
-    assert svg_path.exists()
+    assert reward_equity_path.exists()
+    assert drawdown_turnover_path.exists()
+    assert action_position_path.exists()
+    assert costs_path.exists()
 
 
 def test_train_run_creates_ready_manifest_with_bootstrap():
@@ -46,9 +53,16 @@ def test_train_run_creates_ready_manifest_with_bootstrap():
 
     train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
     assert train_manifest["status"] == "ready"
-    assert train_manifest["epochs"] == 1
-    assert train_manifest["model"] == "VolTarget-baseline"
+    assert train_manifest["epochs"] == 5
+    assert train_manifest["model"] == "LinearPolicyGradient"
     assert "probe" in train_manifest
+    assert "model_train" in train_manifest
+
+    model_train = json.loads((run_dir / "model_train_summary.json").read_text(encoding="utf-8"))
+    assert model_train["enabled"] is True
+    assert model_train["epochs"] == 5
+    assert model_train["model"] == "LinearPolicyGradient"
+    assert len(model_train["history"]) == 5
 
     data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
     assert '"bootstrap_generated": ' in data_manifest
