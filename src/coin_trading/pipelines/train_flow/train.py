@@ -11,7 +11,12 @@ import pandas as pd
 from src.coin_trading.config.schema import AppConfig
 from src.coin_trading.pipelines.train_flow.env import build_env
 from src.coin_trading.pipelines.train_flow.evaluate import rollout_model
-from src.coin_trading.pipelines.train_flow.features import compute_features
+from src.coin_trading.pipelines.train_flow.features import (
+    compute_features,
+    fit_feature_scaler,
+    transform_with_scaler,
+    validate_rolling_features_no_lookahead,
+)
 from src.coin_trading.report.plotting import write_learning_curve_artifacts
 
 
@@ -68,9 +73,19 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     seed_everything(cfg.train.seed if cfg.train.seed is not None else cfg.seed)
-    train_features = compute_features(train_df)
-    val_features = compute_features(val_df)
-    test_features = compute_features(test_df) if not test_df.empty else pd.DataFrame()
+    train_features_raw = compute_features(train_df)
+    val_features_raw = compute_features(val_df)
+    test_features_raw = compute_features(test_df) if not test_df.empty else pd.DataFrame()
+
+    validate_rolling_features_no_lookahead(train_df, train_features_raw)
+    validate_rolling_features_no_lookahead(val_df, val_features_raw)
+    if not test_df.empty:
+        validate_rolling_features_no_lookahead(test_df, test_features_raw)
+
+    scaler = fit_feature_scaler(train_features_raw, split_name="train")
+    train_features = transform_with_scaler(train_features_raw, scaler)
+    val_features = transform_with_scaler(val_features_raw, scaler)
+    test_features = transform_with_scaler(test_features_raw, scaler) if not test_df.empty else pd.DataFrame()
 
     train_env = build_env(train_df, train_features, cfg)
     model = build_sb3_algo(cfg.train.algo, train_env, cfg)

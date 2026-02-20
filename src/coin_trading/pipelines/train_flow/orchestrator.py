@@ -14,7 +14,13 @@ from src.coin_trading.pipelines.run_manager import (
     write_meta,
     write_train_manifest,
 )
-from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, split_by_date, summarize_dataset
+from src.coin_trading.pipelines.train_flow.data import (
+    build_walkforward_splits,
+    ensure_training_candles,
+    split_by_date,
+    summarize_dataset,
+    validate_split_policy,
+)
 from src.coin_trading.pipelines.train_flow.train import train_sb3
 
 
@@ -36,31 +42,45 @@ def run() -> str:
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
 
-    write_meta(
-        run_dir,
-        {
-            "seed": cfg.seed,
-            "start_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "data_range": {k: v["range"] for k, v in dataset_summary["splits"].items()},
-        },
-    )
-
-    train_df = split_by_date(candles_df, cfg.split.train)
-    val_df = split_by_date(candles_df, cfg.split.val)
-    test_df = split_by_date(candles_df, cfg.split.test)
+    base_split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
+    split_policy = validate_split_policy(base_split, candles_df)
+    wf_splits = build_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs)
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
+    wf_results = []
+
     if dataset_summary["rows"] > 0:
-        try:
-            train_summary = train_sb3(train_df, val_df, test_df, cfg, run_dir)
-        except RuntimeError as exc:
-            status = "blocked_missing_dependencies"
-            train_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
-        except Exception as exc:  # pragma: no cover - defensive fallback for runtime errors in optional training stack
-            status = "blocked_training_error"
-            train_summary = {"enabled": False, "reason": "training_error", "message": str(exc)}
+        for idx, split_cfg in enumerate(wf_splits, start=1):
+            train_df = split_by_date(candles_df, split_cfg["train"])
+            val_df = split_by_date(candles_df, split_cfg["val"])
+            test_df = split_by_date(candles_df, split_cfg["test"])
+            fold_dir = run_dir / f"walkforward_{idx:02d}"
+            fold_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                fold_summary = train_sb3(train_df, val_df, test_df, cfg, fold_dir)
+            except RuntimeError as exc:
+                status = "blocked_missing_dependencies"
+                fold_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
+            wf_results.append(
+                {
+                    "fold": idx,
+                    "split": {k: list(v) for k, v in split_cfg.items()},
+                    "rows": {"train": len(train_df), "val": len(val_df), "test": len(test_df)},
+                    "summary": fold_summary,
+                }
+            )
+            if status == "blocked_missing_dependencies":
+                break
     else:
-        train_summary = {"enabled": False, "reason": "no_data"}
+        wf_results.append({"fold": 1, "summary": {"enabled": False, "reason": "no_data"}})
+
+    train_summary = {
+        "enabled": status == "ready",
+        "walkforward_runs": len(wf_results),
+        "walkforward_requested": cfg.train.walkforward_runs,
+        "results": wf_results,
+        "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
+    }
 
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
@@ -75,11 +95,7 @@ def run() -> str:
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
             "dataset": dataset_summary,
-            "artifacts": {
-                "config": "artifacts/config.yaml",
-                "metadata": "artifacts/metadata.json",
-                "dataset_summary": "reports/dataset_summary.json",
-            },
+            "split_policy": split_policy,
         },
     )
     write_feature_manifest(
