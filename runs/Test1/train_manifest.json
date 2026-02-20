@@ -1,0 +1,108 @@
+{
+  "status": "ready",
+  "missing": [],
+  "split_rows": {
+    "train": 240,
+    "val": 240,
+    "test": 240
+  },
+  "epochs": 0,
+  "model": "SB3-PPO",
+  "model_train": {
+    "enabled": true,
+    "model": "SB3-PPO",
+    "algo": "ppo",
+    "steps": 1024,
+    "best_model": "best_model.zip",
+    "checkpoints": [
+      "checkpoint_512.zip",
+      "checkpoint_1024.zip"
+    ],
+    "history": [
+      {
+        "timesteps": 256,
+        "val": {
+          "steps": 238,
+          "final_equity": 9992.300420124919,
+          "sharpe": -4.978537769932379,
+          "max_drawdown": 0.0008956087571176941,
+          "turnover": 0.14553238517606043,
+          "win_rate": 0.0
+        }
+      },
+      {
+        "timesteps": 512,
+        "val": {
+          "steps": 238,
+          "final_equity": 9999.615627804676,
+          "sharpe": -1.4613668278633127,
+          "max_drawdown": 3.843721953233903e-05,
+          "turnover": 0.011897659842435968,
+          "win_rate": 0.0
+        }
+      },
+      {
+        "timesteps": 768,
+        "val": {
+          "steps": 238,
+          "final_equity": 10000.0,
+          "sharpe": 0.0,
+          "max_drawdown": 0.0,
+          "turnover": 0.0,
+          "win_rate": 0.0
+        }
+      },
+      {
+        "timesteps": 1024,
+        "val": {
+          "steps": 238,
+          "final_equity": 10000.0,
+          "sharpe": 0.0,
+          "max_drawdown": 0.0,
+          "turnover": 0.0,
+          "win_rate": 0.0
+        }
+      }
+    ],
+    "val_metrics": {
+      "steps": 238,
+      "final_equity": 10000.0,
+      "sharpe": 0.0,
+      "max_drawdown": 0.0,
+      "turnover": 0.0,
+      "win_rate": 0.0,
+      "artifacts": {
+        "csv": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/trace.csv",
+        "svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/reward_equity.svg",
+        "reward_equity_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/reward_equity.svg",
+        "drawdown_turnover_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/drawdown_turnover.svg",
+        "action_position_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/action_position.svg",
+        "costs_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/val_trace/costs.svg"
+      }
+    },
+    "test_metrics": {
+      "steps": 238,
+      "final_equity": 10000.0,
+      "sharpe": 0.0,
+      "max_drawdown": 0.0,
+      "turnover": 0.0,
+      "win_rate": 0.0,
+      "artifacts": {
+        "csv": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/trace.csv",
+        "svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/reward_equity.svg",
+        "reward_equity_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/reward_equity.svg",
+        "drawdown_turnover_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/drawdown_turnover.svg",
+        "action_position_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/action_position.svg",
+        "costs_svg": "runs/20260220_062916Z_3375640_demo_BTCUSDT_5m_seed3/test_trace/costs.svg"
+      }
+    },
+    "artifacts": {
+      "learning_curve_csv": "learning_curve.csv",
+      "learning_curve_json": "learning_curve.json",
+      "learning_curve_svg": "learning_curve.svg",
+      "best_model": "best_model.zip",
+      "val_trace_dir": "val_trace",
+      "test_trace_dir": "test_trace"
+    }
+  }
+}
