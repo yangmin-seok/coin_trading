@@ -210,6 +210,45 @@ def build_walkforward_splits(
     return splits
 
 
+
+
+def compute_walkforward_capacity(
+    candles_df: pd.DataFrame,
+    split: dict[str, tuple[str, str]],
+    step_days: int | None = None,
+    data_end_override: pd.Timestamp | None = None,
+) -> dict[str, Any]:
+    """현재 split/step 기준으로 데이터가 수용 가능한 최대 fold 수를 계산한다."""
+
+    validate_split_policy(split, candles_df)
+    val_start = pd.Timestamp(split["val"][0], tz="UTC")
+    val_end = pd.Timestamp(split["val"][1], tz="UTC")
+    test_end = pd.Timestamp(split["test"][1], tz="UTC")
+
+    val_days = int((val_end - val_start).days) + 1
+    chosen_step_days = max(1, int(step_days) if step_days is not None else val_days)
+
+    if data_end_override is not None:
+        data_end = data_end_override
+    elif candles_df.empty:
+        data_end = test_end
+    else:
+        data_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True).normalize()
+
+    forward_days = int((data_end - test_end).days)
+    feasible_forward_days = max(0, forward_days)
+    possible_runs = 1 + (feasible_forward_days // chosen_step_days)
+
+    return {
+        "possible_runs": int(max(1, possible_runs)),
+        "step_days": int(chosen_step_days),
+        "val_days": int(val_days),
+        "forward_days": int(forward_days),
+        "data_end": data_end.strftime("%Y-%m-%d"),
+        "base_test_end": test_end.strftime("%Y-%m-%d"),
+    }
+
+
 def plan_walkforward_splits(
     candles_df: pd.DataFrame,
     split: dict[str, tuple[str, str]],

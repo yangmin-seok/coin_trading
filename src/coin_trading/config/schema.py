@@ -64,6 +64,9 @@ class TrainConfig(BaseModel):
     checkpoint_interval: int = Field(gt=0, default=5_000)
     resume_from: str | None = None
     walkforward_runs: int = Field(ge=2, le=10, default=3)
+    walkforward_adjustment_scenario: Literal["auto", "extend_data", "reduce_val_test", "off"] = "auto"
+    walkforward_shortfall_policy: Literal["warn_and_continue", "abort"] = "warn_and_continue"
+    walkforward_extend_days: int = Field(ge=0, default=0)
 
 
 class ExplorationAxesConfig(BaseModel):
