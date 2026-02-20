@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.coin_trading.config.loader import load_config
@@ -13,13 +14,19 @@ from src.coin_trading.pipelines.run_manager import (
     write_meta,
     write_train_manifest,
 )
-from src.coin_trading.pipelines.train_flow.data import ensure_training_candles, split_by_date, summarize_dataset
+from src.coin_trading.pipelines.train_flow.data import (
+    build_walkforward_splits,
+    ensure_training_candles,
+    split_by_date,
+    summarize_dataset,
+    validate_split_policy,
+)
 from src.coin_trading.pipelines.train_flow.train import train_sb3
 
 
 def run() -> str:
     cfg = load_config()
-    run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
+    run_id = make_run_id()
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = run_dir / "plots"
@@ -29,6 +36,12 @@ def run() -> str:
     reports_dir.mkdir(exist_ok=True)
     artifacts_dir.mkdir(exist_ok=True)
 
+    plots_dir = run_dir / "plots"
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    for directory in (plots_dir, reports_dir, artifacts_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
     write_meta(artifacts_dir)
@@ -36,19 +49,45 @@ def run() -> str:
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
 
-    train_df = split_by_date(candles_df, cfg.split.train)
-    val_df = split_by_date(candles_df, cfg.split.val)
-    test_df = split_by_date(candles_df, cfg.split.test)
+    base_split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
+    split_policy = validate_split_policy(base_split, candles_df)
+    wf_splits = build_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs)
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
+    wf_results = []
+
     if dataset_summary["rows"] > 0:
-        try:
-            train_summary = train_sb3(train_df, val_df, test_df, cfg, run_dir)
-        except RuntimeError as exc:
-            status = "blocked_missing_dependencies"
-            train_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
+        for idx, split_cfg in enumerate(wf_splits, start=1):
+            train_df = split_by_date(candles_df, split_cfg["train"])
+            val_df = split_by_date(candles_df, split_cfg["val"])
+            test_df = split_by_date(candles_df, split_cfg["test"])
+            fold_dir = run_dir / f"walkforward_{idx:02d}"
+            fold_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                fold_summary = train_sb3(train_df, val_df, test_df, cfg, fold_dir)
+            except RuntimeError as exc:
+                status = "blocked_missing_dependencies"
+                fold_summary = {"enabled": False, "reason": "missing_dependencies", "message": str(exc)}
+            wf_results.append(
+                {
+                    "fold": idx,
+                    "split": {k: list(v) for k, v in split_cfg.items()},
+                    "rows": {"train": len(train_df), "val": len(val_df), "test": len(test_df)},
+                    "summary": fold_summary,
+                }
+            )
+            if status == "blocked_missing_dependencies":
+                break
     else:
-        train_summary = {"enabled": False, "reason": "no_data"}
+        wf_results.append({"fold": 1, "summary": {"enabled": False, "reason": "no_data"}})
+
+    train_summary = {
+        "enabled": status == "ready",
+        "walkforward_runs": len(wf_results),
+        "walkforward_requested": cfg.train.walkforward_runs,
+        "results": wf_results,
+        "model": wf_results[0]["summary"].get("model", "none") if wf_results else "none",
+    }
 
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
@@ -63,6 +102,7 @@ def run() -> str:
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
             "dataset": dataset_summary,
+            "split_policy": split_policy,
         },
     )
     write_feature_manifest(
@@ -78,17 +118,24 @@ def run() -> str:
                     Path(__file__).resolve().parents[2] / "features" / "offline.py",
                 ]
             ),
+            "artifact_paths": {
+                "manifest": "feature_manifest.json",
+                "train_manifest": "train_manifest.json",
+            },
         },
     )
     write_train_manifest(
         artifacts_dir,
         {
             "status": status,
-            "missing": [] if status == "ready" else ["stable-baselines3/gymnasium dependencies"],
+            "missing": [] if status == "ready" else [train_summary.get("message", "training unavailable")],
             "split_rows": {k: v["rows"] for k, v in dataset_summary["splits"].items()},
             "epochs": 0,
             "model": train_summary.get("model", "none"),
             "model_train": train_summary,
+            "artifacts": {
+                "train_summary_report": "reports/model_train_summary.json",
+            },
         },
     )
     (artifacts_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")

@@ -64,7 +64,7 @@ def render_multi_line_svg(df: pd.DataFrame, series: list[tuple[str, str]], title
     )
 
 
-def write_learning_curve_artifacts(history: list[dict[str, Any]], run_dir: Path) -> None:
+def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: Path, plots_dir: Path) -> None:
     rows = [
         {
             "timesteps": h["timesteps"],
@@ -78,9 +78,11 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], run_dir: Path)
         for h in history
     ]
     frame = pd.DataFrame(rows)
-    frame.to_csv(run_dir / "learning_curve.csv", index=False)
-    (run_dir / "learning_curve.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    (run_dir / "learning_curve.svg").write_text(
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(reports_dir / "learning_curve.csv", index=False)
+    (reports_dir / "learning_curve.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    (plots_dir / "learning_curve.svg").write_text(
         render_multi_line_svg(
             frame,
             series=[("val_sharpe", "#1f77b4"), ("val_final_equity", "#2ca02c")],

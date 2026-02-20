@@ -23,7 +23,7 @@ def _git_dirty() -> bool:
     return bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
 
 
-def write_meta(run_dir: Path) -> None:
+def write_meta(run_dir: Path, extra: dict[str, Any] | None = None) -> None:
     meta = {
         "git_sha": git_sha(),
         "git_dirty": _git_dirty(),
@@ -32,7 +32,12 @@ def write_meta(run_dir: Path) -> None:
         "libs": {},
         "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    (run_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    if extra:
+        meta.update(extra)
+
+    artifacts_dir = run_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 def write_data_manifest(run_dir: Path, payload: dict[str, Any]) -> None:
