@@ -19,13 +19,16 @@ from src.coin_trading.pipelines.train_flow.train import train_sb3
 
 def run() -> str:
     cfg = load_config()
-    run_id = make_run_id(cfg.mode, cfg.symbol, cfg.interval, cfg.seed)
+    run_id = make_run_id()
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (run_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_meta(run_dir)
+    write_meta(
+        run_dir,
+        runtime={"mode": cfg.mode, "symbol": cfg.symbol, "interval": cfg.interval, "seed": cfg.seed},
+    )
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)

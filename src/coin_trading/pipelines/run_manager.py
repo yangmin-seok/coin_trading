@@ -23,7 +23,7 @@ def _git_dirty() -> bool:
     return bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
 
 
-def write_meta(run_dir: Path) -> None:
+def write_meta(run_dir: Path, runtime: dict[str, Any] | None = None) -> None:
     meta = {
         "git_sha": git_sha(),
         "git_dirty": _git_dirty(),
@@ -32,6 +32,8 @@ def write_meta(run_dir: Path) -> None:
         "libs": {},
         "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if runtime:
+        meta["runtime"] = runtime
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
