@@ -29,6 +29,12 @@ def run() -> str:
     run_id = make_run_id()
     run_dir = Path("runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir = run_dir / "plots"
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    plots_dir.mkdir(exist_ok=True)
+    reports_dir.mkdir(exist_ok=True)
+    artifacts_dir.mkdir(exist_ok=True)
 
     plots_dir = run_dir / "plots"
     reports_dir = run_dir / "reports"
@@ -38,6 +44,7 @@ def run() -> str:
 
     default_config_path = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
     (artifacts_dir / "config.yaml").write_text(default_config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    write_meta(artifacts_dir)
 
     candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
     dataset_summary = summarize_dataset(candles_df, cfg)
@@ -85,7 +92,7 @@ def run() -> str:
     (reports_dir / "model_train_summary.json").write_text(json.dumps(train_summary, indent=2), encoding="utf-8")
 
     write_data_manifest(
-        run_dir,
+        artifacts_dir,
         {
             "exchange": cfg.exchange,
             "market": cfg.market,
@@ -99,7 +106,7 @@ def run() -> str:
         },
     )
     write_feature_manifest(
-        run_dir,
+        artifacts_dir,
         {
             "feature_set_version": cfg.features.version,
             "windows": cfg.features.windows.model_dump(by_alias=True),
@@ -118,7 +125,7 @@ def run() -> str:
         },
     )
     write_train_manifest(
-        run_dir,
+        artifacts_dir,
         {
             "status": status,
             "missing": [] if status == "ready" else [train_summary.get("message", "training unavailable")],
@@ -131,5 +138,5 @@ def run() -> str:
             },
         },
     )
-    (reports_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
+    (artifacts_dir / "dataset_summary.json").write_text(json.dumps(dataset_summary, indent=2), encoding="utf-8")
     return run_id
