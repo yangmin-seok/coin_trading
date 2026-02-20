@@ -55,15 +55,24 @@ def _interval_to_ms(interval: str) -> int:
     raise ValueError(f"unsupported interval: {interval}")
 
 
-def _generate_bootstrap_candles(cfg: AppConfig, candles_per_split: int = 240) -> pd.DataFrame:
+def _generate_bootstrap_candles(
+    cfg: AppConfig,
+    candles_per_split: dict[str, int] | None = None,
+) -> pd.DataFrame:
+    candles_per_split = candles_per_split or {"train": 480, "val": 120, "test": 120}
     step_ms = _interval_to_ms(cfg.interval)
     rng = np.random.default_rng(cfg.seed)
-    split_starts = [cfg.split.train[0], cfg.split.val[0], cfg.split.test[0]]
+    split_starts = {
+        "train": cfg.split.train[0],
+        "val": cfg.split.val[0],
+        "test": cfg.split.test[0],
+    }
     rows: list[dict[str, float | int]] = []
     price = 100.0
-    for split_start in split_starts:
+    for split_name, split_start in split_starts.items():
+        split_rows = int(candles_per_split.get(split_name, 120))
         start_ts = int(pd.Timestamp(split_start, tz="UTC").timestamp() * 1000)
-        for i in range(candles_per_split):
+        for i in range(split_rows):
             open_time = start_ts + i * step_ms
             close_time = open_time + step_ms - 1
             open_price = price
