@@ -1,0 +1,1 @@
+"""Telegram sender placeholder."""
