@@ -39,6 +39,48 @@ def _write_meta_compat(run_dir: Path, extra: dict[str, object]) -> None:
     write_meta(run_dir)
 
 
+def _required_walkforward_test_end(split: dict[str, tuple[str, str]], requested_runs: int) -> datetime:
+    val_start = datetime.fromisoformat(split["val"][0]).replace(tzinfo=timezone.utc)
+    val_end = datetime.fromisoformat(split["val"][1]).replace(tzinfo=timezone.utc)
+    test_end = datetime.fromisoformat(split["test"][1]).replace(tzinfo=timezone.utc)
+    step_days = max(1, (val_end - val_start).days + 1)
+    return test_end + timedelta(days=step_days * max(0, requested_runs - 1))
+
+
+def _shrink_split_to_data_coverage(
+    split: dict[str, tuple[str, str]],
+    requested_runs: int,
+    data_end: datetime,
+) -> tuple[dict[str, tuple[str, str]], dict[str, object] | None]:
+    required_end = _required_walkforward_test_end(split, requested_runs)
+    if data_end >= required_end:
+        return split, None
+
+    val_start = datetime.fromisoformat(split["val"][0]).replace(tzinfo=timezone.utc)
+    test_start = datetime.fromisoformat(split["test"][0]).replace(tzinfo=timezone.utc)
+    available_days = int((data_end - test_start).days) + 1
+    if available_days < 28:
+        return split, None
+
+    reduced_days = max(14, available_days // 2)
+    new_val_end = val_start + timedelta(days=reduced_days - 1)
+    new_test_start = new_val_end + timedelta(days=1)
+    new_test_end = min(data_end, new_test_start + timedelta(days=reduced_days - 1))
+    if new_test_end < new_test_start:
+        return split, None
+
+    adjusted_split = {
+        "train": (split["train"][0], (val_start - timedelta(days=1)).strftime("%Y-%m-%d")),
+        "val": (val_start.strftime("%Y-%m-%d"), new_val_end.strftime("%Y-%m-%d")),
+        "test": (new_test_start.strftime("%Y-%m-%d"), new_test_end.strftime("%Y-%m-%d")),
+    }
+    return adjusted_split, {
+        "action": "split_reduction",
+        "before": {k: list(v) for k, v in split.items()},
+        "after": {k: list(v) for k, v in adjusted_split.items()},
+    }
+
+
 def run() -> str:
     cfg = load_config()
     run_id = make_run_id()
@@ -66,27 +108,45 @@ def run() -> str:
 
     base_split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
     split_policy = validate_split_policy(base_split, candles_df)
-    walkforward_plan = plan_walkforward_splits(candles_df, base_split, target_runs=cfg.train.walkforward_runs, min_folds=3)
-    wf_splits = walkforward_plan["splits"]
 
-    walkforward_shortfall = None
-    if dataset_summary["rows"] > 0 and len(wf_splits) < cfg.train.walkforward_runs:
-        val_start = datetime.fromisoformat(cfg.split.val[0]).replace(tzinfo=timezone.utc)
-        val_end = datetime.fromisoformat(cfg.split.val[1]).replace(tzinfo=timezone.utc)
-        test_end = datetime.fromisoformat(cfg.split.test[1]).replace(tzinfo=timezone.utc)
-        step_days = max(1, (val_end - val_start).days + 1)
-        next_fold_test_end = test_end + timedelta(days=step_days * len(wf_splits))
+    data_end = None
+    if dataset_summary["rows"] > 0:
         data_end = datetime.fromtimestamp(int(candles_df["open_time"].max()) / 1000, tz=timezone.utc).replace(
             hour=0,
             minute=0,
             second=0,
             microsecond=0,
         )
+
+    required_test_end = _required_walkforward_test_end(base_split, cfg.train.walkforward_runs)
+    minimum_coverage_check = {
+        "requested_runs": cfg.train.walkforward_runs,
+        "data_end": data_end.strftime("%Y-%m-%d") if data_end else None,
+        "next_fold_required_test_end": required_test_end.strftime("%Y-%m-%d"),
+        "satisfied": bool(data_end and data_end >= required_test_end),
+    }
+
+    effective_split = base_split
+    coverage_adjustment = None
+    if data_end and data_end < required_test_end:
+        effective_split, coverage_adjustment = _shrink_split_to_data_coverage(base_split, cfg.train.walkforward_runs, data_end)
+
+    walkforward_plan = plan_walkforward_splits(
+        candles_df,
+        effective_split,
+        target_runs=cfg.train.walkforward_runs,
+        min_folds=3,
+    )
+    wf_splits = walkforward_plan["splits"]
+
+    walkforward_shortfall = None
+    if dataset_summary["rows"] > 0 and len(wf_splits) < cfg.train.walkforward_runs:
+        next_fold_test_end = _required_walkforward_test_end(effective_split, len(wf_splits) + 1)
         walkforward_shortfall = {
             "reason": "insufficient_data_coverage_for_requested_walkforward",
             "requested": cfg.train.walkforward_runs,
             "actual": len(wf_splits),
-            "data_end": data_end.strftime("%Y-%m-%d"),
+            "data_end": data_end.strftime("%Y-%m-%d") if data_end else None,
             "next_fold_required_test_end": next_fold_test_end.strftime("%Y-%m-%d"),
             "suggestion": "collect more data or reduce val/test ranges to increase walkforward folds",
         }
@@ -124,6 +184,8 @@ def run() -> str:
         "enabled": status == "ready",
         "walkforward_runs": len(wf_results),
         "walkforward_requested": cfg.train.walkforward_runs,
+        "walkforward_coverage_check": minimum_coverage_check,
+        "walkforward_coverage_adjustment": coverage_adjustment,
         "walkforward_shortfall": walkforward_shortfall,
         "results": wf_results,
         "model": primary_summary.get("model", "none"),

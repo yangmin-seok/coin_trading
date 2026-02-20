@@ -232,6 +232,27 @@ cat runs/$RUN_ID/data_manifest.json
 - `train_manifest.status == "ready"`
 - `data_manifest.bootstrap_generated` 값 확인
 
+워크포워드 최소 커버리지/리포트 검증:
+
+```bash
+RUN_ID=$(python -m src.coin_trading.pipelines.train | tail -n 1)
+export RUN_ID
+python - <<'PY'
+import json, pathlib, os
+run_id = os.environ["RUN_ID"]
+summary_path = pathlib.Path("runs") / run_id / "reports" / "model_train_summary.json"
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
+print("walkforward_runs:", summary["walkforward_runs"])
+print("walkforward_shortfall:", summary["walkforward_shortfall"])
+assert summary["walkforward_runs"] >= 3
+assert summary["walkforward_shortfall"] is None
+PY
+```
+
+`model_train_summary.json`의 `walkforward_coverage_check`에는
+`data_end`와 `next_fold_required_test_end` 비교 결과가 기록되며,
+데이터가 부족한 경우 `walkforward_coverage_adjustment`에 분할 축소 적용 내역이 남습니다.
+
 ### B. Runtime 구역
 
 ```bash
