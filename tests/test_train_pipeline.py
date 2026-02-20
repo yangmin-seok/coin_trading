@@ -45,6 +45,8 @@ def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
 
 def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataFrame):
     cfg = load_config()
+    cfg.seed = 11
+    cfg.train.seed = 29
     cfg.execution.fee_rate = 0.0025
     cfg.execution.slippage_bps = 4.0
     cfg.execution.max_step_change = 0.15
@@ -62,3 +64,4 @@ def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataF
     assert env.env.lambda_turnover == cfg.reward.lambda_turnover
     assert env.env.lambda_dd == cfg.reward.lambda_dd
     assert env.env.dd_limit == cfg.reward.dd_limit
+    assert env._seed == cfg.train.seed

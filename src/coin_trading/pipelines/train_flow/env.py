@@ -8,6 +8,7 @@ from src.coin_trading.config.schema import AppConfig
 
 
 def build_env(candles_df: pd.DataFrame, features_df: pd.DataFrame, cfg: AppConfig) -> GymTradingEnv:
+    seed = cfg.train.seed if cfg.train.seed is not None else cfg.seed
     execution_model = ExecutionModel(
         fee_rate=cfg.execution.fee_rate,
         slippage_bps=cfg.execution.slippage_bps,
@@ -18,7 +19,7 @@ def build_env(candles_df: pd.DataFrame, features_df: pd.DataFrame, cfg: AppConfi
         candles_df,
         features_df,
         execution_model,
-        seed=cfg.seed,
+        seed=seed,
         lambda_turnover=cfg.reward.lambda_turnover,
         lambda_dd=cfg.reward.lambda_dd,
         dd_limit=cfg.reward.dd_limit,
