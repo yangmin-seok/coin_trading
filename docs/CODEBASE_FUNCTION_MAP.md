@@ -112,15 +112,18 @@
 ## pipelines/
 
 - `run_manager.py`
-  - `make_run_id`, `git_sha`, `_git_dirty`, `write_meta`, `write_data_manifest`, `write_feature_manifest`, `implementation_hash`.
+  - `make_run_id`, `git_sha`, `_git_dirty`, `write_meta`, `write_data_manifest`, `write_feature_manifest`, `write_train_manifest`, `implementation_hash`.
 - `train.py`
-  - `run()`: 실행 폴더 생성 + 메타/매니페스트 기록.
+  - `_train_data_glob(...)`: 학습용 파케이 경로 패턴 생성.
+  - `load_training_candles(...)`: 학습 데이터셋 로드/정렬/중복제거.
+  - `summarize_dataset_for_training(...)`: split 별 row 수와 feature NaN 비율 산출.
+  - `run()`: 실행 폴더 생성 + meta/data/feature/train manifest + dataset summary 기록.
 - `trade.py`
   - `TradeRuntime`, `build_runtime`, `reconcile_once`, `run`(현재 runtime ready 문자열 반환 중심).
 - `test.py`
   - `run()`: 스캐폴드 문자열 반환.
 
-상태: **부분 구현** (trade/test 파이프라인은 실행 루프 미완)
+상태: **부분 구현** (train 산출물 강화 완료, trade/test 파이프라인 실행 루프는 미완)
 
 ## agents/
 
