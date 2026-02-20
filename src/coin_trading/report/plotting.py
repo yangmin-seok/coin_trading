@@ -7,11 +7,25 @@ from typing import Any
 import pandas as pd
 
 
+SERIES_STYLE: dict[str, dict[str, str]] = {
+    "train": {"color": "#1f77b4", "dash": ""},
+    "val": {"color": "#ff7f0e", "dash": ""},
+    "test": {"color": "#2ca02c", "dash": ""},
+    "baseline": {"color": "#7f7f7f", "dash": "5,3"},
+    "cash_hold": {"color": "#7f7f7f", "dash": "5,3"},
+    "buy_hold": {"color": "#8c564b", "dash": "3,2"},
+}
+
+
 def render_multi_line_svg(
     df: pd.DataFrame,
     primary_series: list[tuple[str, str]],
     secondary_series: list[tuple[str, str]],
     title: str,
+    subtitle: str = "",
+    annotations: list[dict[str, Any]] | None = None,
+    y_format_left: str = "number",
+    y_format_right: str = "number",
 ) -> str:
     width, height = 900, 340
     pad_l, pad_r, pad_t, pad_b = 64, 24, 28, 52
@@ -43,15 +57,30 @@ def render_multi_line_svg(
         name: [_y_scale(v, right_min, right_max) for v in vals] for name, vals in secondary_data.items()
     }
 
-    def _line(vals: list[float], color: str) -> str:
+    def _series_style(name: str, color: str) -> tuple[str, str]:
+        for key, spec in SERIES_STYLE.items():
+            if key in name:
+                return spec["color"], spec.get("dash", "")
+        return color, ""
+
+    def _line(name: str, vals: list[float], color: str) -> str:
         if not vals:
             return ""
+        line_color, dash = _series_style(name, color)
         pts = []
         n = max(1, len(vals) - 1)
         for i, y in enumerate(vals):
             xx = pad_l + (i / n) * chart_w
             pts.append(f"{xx:.2f},{y:.2f}")
-        return f"<polyline fill='none' stroke='{color}' stroke-width='1.8' points='{' '.join(pts)}'/>"
+        dash_attr = f" stroke-dasharray='{dash}'" if dash else ""
+        return (
+            f"<polyline fill='none' stroke='{line_color}' stroke-width='1.8'{dash_attr} points='{' '.join(pts)}'/>"
+        )
+
+    def _format_tick(value: float, mode: str) -> str:
+        if mode == "percent":
+            return f"{value * 100:.1f}%"
+        return f"{value:.4g}"
 
     x_steps = max(1, len(df) - 1)
     x_ticks = min(6, x_steps + 1)
@@ -70,10 +99,10 @@ def render_multi_line_svg(
             f"<line x1='{pad_l}' y1='{yy:.2f}' x2='{pad_l + chart_w}' y2='{yy:.2f}' stroke='#e6e6e6' stroke-width='1'/>"
         )
         y_label_parts.append(
-            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{y_left:.4g}</text>"
+            f"<text x='{pad_l - 8}' y='{yy + 4:.2f}' text-anchor='end' font-size='11' fill='#666'>{_format_tick(y_left, y_format_left)}</text>"
         )
         y_label_parts.append(
-            f"<text x='{pad_l + chart_w + 8}' y='{yy + 4:.2f}' text-anchor='start' font-size='11' fill='#666'>{y_right:.4g}</text>"
+            f"<text x='{pad_l + chart_w + 8}' y='{yy + 4:.2f}' text-anchor='start' font-size='11' fill='#666'>{_format_tick(y_right, y_format_right)}</text>"
         )
 
     for i in range(x_ticks):
@@ -96,27 +125,45 @@ def render_multi_line_svg(
     legend = []
     legend_x = 70
     for name, color in primary_series:
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{color}'>[L] {name}</text>")
+        line_color, _ = _series_style(name, color)
+        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[L] {name}</text>")
         legend_x += 145
     for name, color in secondary_series:
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{color}'>[R] {name}</text>")
+        line_color, _ = _series_style(name, color)
+        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[R] {name}</text>")
         legend_x += 165
 
     labels = (
         f"<text x='{pad_l + chart_w / 2:.2f}' y='{height-10}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
-        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value [L]</text>"
-        f"<text x='{pad_l + chart_w + 36}' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>value [R]</text>"
+        f"<text x='16' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [L]' if y_format_left == 'percent' else 'value [L]'}</text>"
+        f"<text x='{pad_l + chart_w + 36}' y='{pad_t + chart_h / 2:.2f}' font-size='11' fill='#666'>{'return % [R]' if y_format_right == 'percent' else 'value [R]'}</text>"
         f"<text x='{pad_l}' y='{pad_t - 8}' font-size='12' fill='#222'>{title}</text>"
+        f"<text x='{pad_l}' y='{pad_t + 8}' font-size='11' fill='#555'>{subtitle}</text>"
         + "".join(legend)
     )
 
-    lines = "".join(_line(primary_scaled[name], color) for name, color in primary_series)
-    lines += "".join(_line(secondary_scaled[name], color) for name, color in secondary_series)
+    lines = "".join(_line(name, primary_scaled[name], color) for name, color in primary_series)
+    lines += "".join(_line(name, secondary_scaled[name], color) for name, color in secondary_series)
+
+    marker_parts: list[str] = []
+    for ann in annotations or []:
+        idx = int(ann.get("index", 0))
+        n = max(1, len(df) - 1)
+        xx = pad_l + (max(0, min(idx, n)) / n) * chart_w
+        value = float(ann.get("value", 0.0))
+        axis = ann.get("axis", "left")
+        yy = _y_scale(value, right_min, right_max) if axis == "right" else _y_scale(value, left_min, left_max)
+        color = ann.get("color", "#111")
+        label = ann.get("label", "")
+        marker_parts.append(f"<circle cx='{xx:.2f}' cy='{yy:.2f}' r='3.2' fill='{color}'/>")
+        marker_parts.append(
+            f"<text x='{xx + 6:.2f}' y='{yy - 6:.2f}' font-size='10' fill='{color}'>{label}</text>"
+        )
 
     return (
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}'>"
         f"<rect x='0' y='0' width='{width}' height='{height}' fill='white'/>"
-        f"{''.join(grid_parts)}{axes}{''.join(x_label_parts)}{''.join(y_label_parts)}{lines}{labels}"
+        f"{''.join(grid_parts)}{axes}{''.join(x_label_parts)}{''.join(y_label_parts)}{lines}{''.join(marker_parts)}{labels}"
         "</svg>"
     )
 
@@ -148,6 +195,40 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: P
             for h in history
         ]
     )
+    if not plot_frame.empty:
+        base_equity = float(plot_frame["val_final_equity"].iloc[0]) if float(plot_frame["val_final_equity"].iloc[0]) != 0 else 1.0
+        plot_frame["val_return_pct"] = plot_frame["val_final_equity"].astype(float) / base_equity - 1.0
+        plot_frame["val_pnl_pct"] = plot_frame["val_pnl"].astype(float) / base_equity
+
+    subtitle = ""
+    annotations: list[dict[str, Any]] = []
+    if history:
+        best_idx = max(range(len(history)), key=lambda i: float(history[i].get("val", {}).get("sharpe", 0.0)))
+        last_idx = len(history) - 1
+        best_val = history[best_idx].get("val", {})
+        last_val = history[last_idx].get("val", {})
+        subtitle = (
+            f"FinalEq={float(last_val.get('final_equity', 0.0)):.2f}, "
+            f"MDD={float(last_val.get('max_drawdown', 0.0)):.2%}, "
+            f"Turnover={float(last_val.get('turnover', 0.0)):.4f}, "
+            f"Sharpe={float(last_val.get('sharpe', 0.0)):.3f}"
+        )
+        annotations = [
+            {
+                "index": best_idx,
+                "value": float(plot_frame["val_sharpe"].iloc[best_idx]) if not plot_frame.empty else 0.0,
+                "axis": "right",
+                "color": "#ff7f0e",
+                "label": f"best@{int(history[best_idx].get('timesteps', 0))}",
+            },
+            {
+                "index": last_idx,
+                "value": float(plot_frame["val_sharpe"].iloc[last_idx]) if not plot_frame.empty else 0.0,
+                "axis": "right",
+                "color": "#2ca02c",
+                "label": f"final@{int(history[last_idx].get('timesteps', 0))}",
+            },
+        ]
     reports_dir.mkdir(parents=True, exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(reports_dir / "learning_curve.csv", index=False)
@@ -155,13 +236,16 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: P
     (plots_dir / "learning_curve.svg").write_text(
         render_multi_line_svg(
             plot_frame,
-            primary_series=[("val_final_equity", "#2ca02c"), ("val_pnl", "#9467bd"), ("val_sharpe", "#1f77b4")],
+            primary_series=[("val_return_pct", "#ff7f0e"), ("val_pnl_pct", "#9467bd")],
             secondary_series=[
-                ("val_turnover", "#ff7f0e"),
-                ("val_total_cost", "#d62728"),
+                ("val_sharpe", "#ff7f0e"),
+                ("val_turnover", "#bcbd22"),
                 ("val_cost_pnl_ratio", "#8c564b"),
             ],
             title="Validation Metrics Learning Curve",
+            subtitle=subtitle,
+            annotations=annotations,
+            y_format_left="percent",
         ),
         encoding="utf-8",
     )
