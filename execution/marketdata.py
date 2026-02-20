@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 
 def interval_to_ms(interval: str) -> int:
@@ -52,6 +52,12 @@ class MemoryStateStore:
 
 class RestKlineClient(Protocol):
     async def fetch_klines(self, symbol: str, interval: str, start_ms: int, end_ms: int) -> list[dict]: ...
+
+
+class MessageStream(Protocol):
+    async def recv(self) -> dict[str, Any] | None: ...
+
+    async def close(self) -> None: ...
 
 
 class GapFiller:
@@ -108,6 +114,40 @@ class MarketDataWS:
         self.interval_ms = interval_to_ms(interval)
         self._state_key = f"{self.symbol}:{self.interval}:last_ts"
         self.last_ts = state_store.load_last_ts(self._state_key)
+        self._running = False
+        self._reader_task: asyncio.Task | None = None
+
+    async def start(
+        self,
+        stream: MessageStream,
+        payload_extractor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        if self._running:
+            return
+        self._running = True
+        extractor = payload_extractor or (lambda x: x)
+        self._reader_task = asyncio.create_task(self._reader_loop(stream, extractor))
+
+    async def stop(self, stream: MessageStream | None = None) -> None:
+        self._running = False
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+            self._reader_task = None
+        if stream is not None:
+            await stream.close()
+
+    async def _reader_loop(self, stream: MessageStream, extractor: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
+        while self._running:
+            message = await stream.recv()
+            if message is None:
+                await asyncio.sleep(0.1)
+                continue
+            payload = extractor(message)
+            await self.handle_kline_message(payload)
 
     async def handle_kline_message(self, payload: dict) -> None:
         k = payload.get("k", {})
@@ -141,7 +181,7 @@ class MarketDataWS:
         if event.open_time_ms > expected_next and self.gap_filler is not None:
             filled_events = await self.gap_filler.fill(expected_next, event.open_time_ms)
             for filled in filled_events:
-                if filled.open_time_ms <= self.last_ts:
+                if self.last_ts is not None and filled.open_time_ms <= self.last_ts:
                     continue
                 await self.queue.put(filled)
                 self._update_last_ts(filled.open_time_ms)
