@@ -1,23 +1,19 @@
+"""Training pipeline entry module.
+
+공개 API:
+- ``run``: 학습 파이프라인 실행 진입점.
+
+비공개/미지원 API:
+- ``ensure_training_candles`` 및 ``summarize_dataset_for_training`` 같은 과거 헬퍼는
+  더 이상 ``pipelines.train`` 에서 제공하지 않는다.
+- 데이터 준비/요약 기능은 ``src.coin_trading.pipelines.train_flow.data`` 에서만 사용한다.
+"""
+
 from __future__ import annotations
 
-from pathlib import Path
-
-import pandas as pd
-
-from src.coin_trading.config.schema import AppConfig
 from src.coin_trading.pipelines.train_flow.orchestrator import run
 
-
-def ensure_training_candles(cfg: AppConfig, data_root: Path = Path("data/processed")) -> tuple[pd.DataFrame, bool, bool]:
-    raise RuntimeError(
-        "ensure_training_candles is deprecated in pipelines.train; use src.coin_trading.pipelines.train_flow.data.ensure_training_candles"
-    )
-
-
-def summarize_dataset_for_training(candles_df: pd.DataFrame, cfg: AppConfig) -> dict:
-    raise RuntimeError(
-        "summarize_dataset_for_training is deprecated in pipelines.train; use src.coin_trading.pipelines.train_flow.data.summarize_dataset"
-    )
+__all__ = ["run"]
 
 
 if __name__ == "__main__":

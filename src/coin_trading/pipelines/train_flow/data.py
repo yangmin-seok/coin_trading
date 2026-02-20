@@ -1,3 +1,17 @@
+"""Training-data utilities used by train_flow.
+
+공개 API:
+- load_training_candles
+- ensure_training_candles
+- split_by_date
+- validate_split_policy
+- build_walkforward_splits
+- summarize_dataset
+
+비공개 API:
+- 이름이 ``_`` 로 시작하는 내부 헬퍼(예: ``_train_data_glob``, ``_generate_bootstrap_candles``).
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
