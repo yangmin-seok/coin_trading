@@ -5,12 +5,44 @@ RL 기반 코인 트레이딩 프레임워크입니다.
 
 ---
 
+## 0) 프로젝트 구조 총람 (전체 파악)
+
+아래는 저장소 루트 기준 구조입니다.
+
+```text
+/workspace/coin_trading
+├─ README.md
+├─ pyproject.toml
+├─ docs/
+│  ├─ README.md
+│  └─ CODEBASE_FUNCTION_MAP.md
+├─ data/                     # 데이터 I/O/검증/다운로더 유틸(루트 패키지)
+├─ env/                      # TradingEnv, reward/execution model, recorder
+├─ src/coin_trading/
+│  ├─ agents/                # baseline/SB3 정책 어댑터
+│  ├─ config/                # 설정 스키마 + 로더
+│  ├─ execution/             # marketdata/order/risk/reconcile/state
+│  ├─ features/              # offline/online 피처 계산
+│  ├─ integrations/          # Binance REST/WS + Telegram
+│  ├─ monitoring/            # metrics/alerts/drift
+│  └─ pipelines/             # train/trade/test/run_manager 진입점
+└─ tests/                    # 유닛/통합 테스트
+```
+
+핵심 포인트:
+
+- 실행 진입점(`pipelines.*`)은 `src/coin_trading` 아래에 있음.
+- 하지만 `data/`, `env/`는 저장소 루트 패키지이므로 import 경로에 루트가 포함되어야 함.
+- 따라서 실행 시 `src/coin_trading`에서 `PYTHONPATH=../..`를 주는 방식이 현재 구조와 가장 잘 맞습니다.
+
+---
+
 ## 1) 경로 변경 반영: 실행 기준 위치
 
 최근 코드 구조 기준으로, 실행은 저장소 루트가 아니라 아래 경로를 기준으로 잡아야 합니다.
 
 ```bash
-cd src/coin_trading
+cd /workspace/coin_trading/src/coin_trading
 ```
 
 이 프로젝트는 모듈 import가 상대 경로(`config/default.yaml`, `agents.*`, `data.*`)를 함께 사용하므로, 아래처럼 `PYTHONPATH=../..`를 주고 실행하는 방식을 권장합니다.
@@ -42,7 +74,7 @@ python -m pip install -e '.[dev]'
 ### 2-3. 최소 실행 (경로 반영 버전)
 
 ```bash
-cd src/coin_trading
+cd /workspace/coin_trading/src/coin_trading
 PYTHONPATH=../.. python -m pipelines.train
 ```
 
