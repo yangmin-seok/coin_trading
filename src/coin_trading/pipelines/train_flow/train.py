@@ -67,6 +67,13 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     if train_df.empty or val_df.empty:
         return {"enabled": False, "reason": "insufficient_split_rows"}
 
+    reports_dir = run_dir / "reports"
+    artifacts_dir = run_dir / "artifacts"
+    plots_dir = run_dir / "plots"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
     seed_everything(cfg.train.seed if cfg.train.seed is not None else cfg.seed)
     train_features = compute_features(train_df)
     val_features = compute_features(val_df)
@@ -97,19 +104,19 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
         if val_metrics["sharpe"] > best_sharpe:
             best_sharpe = val_metrics["sharpe"]
             stale = 0
-            model.save(str(run_dir / "best_model"))
+            model.save(str(artifacts_dir / "model"))
         else:
             stale += 1
 
         if trained % ckpt_interval == 0 or trained == total:
             ckpt_name = f"checkpoint_{trained}.zip"
-            model.save(str(run_dir / ckpt_name.replace(".zip", "")))
-            checkpoints.append(ckpt_name)
+            model.save(str(artifacts_dir / ckpt_name.replace(".zip", "")))
+            checkpoints.append(f"artifacts/{ckpt_name}")
 
         if cfg.train.early_stop > 0 and stale >= cfg.train.early_stop:
             break
 
-    best_model_path = run_dir / "best_model.zip"
+    best_model_path = artifacts_dir / "model.zip"
     best_model = model.__class__.load(str(best_model_path), env=train_env) if best_model_path.exists() else model
 
     trace_root = run_dir / "reports" / "traces"
@@ -133,14 +140,14 @@ def train_sb3(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFram
     benchmark_plot = create_benchmark_comparison(run_dir, test_df if not test_df.empty else val_df, cfg.seed)
     trade_stats_report = write_trade_stats_report(run_dir, traces.get("test") if not traces.get("test", pd.DataFrame()).empty else traces.get("valid", pd.DataFrame()), overfit_warning)
 
-    write_learning_curve_artifacts(history, run_dir)
+    write_learning_curve_artifacts(history, reports_dir, plots_dir)
 
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
         "steps": int(trained),
-        "best_model": "best_model.zip" if best_model_path.exists() else None,
+        "best_model": "artifacts/model.zip" if best_model_path.exists() else None,
         "checkpoints": checkpoints,
         "history": history,
         "train_metrics": train_final,

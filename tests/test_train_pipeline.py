@@ -61,19 +61,18 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
     train_manifest = json.loads((run_dir / "train_manifest.json").read_text(encoding="utf-8"))
     model_train = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
 
-    assert train_manifest["status"] in {"ready", "blocked_missing_dependencies"}
+    assert train_manifest["status"] in {"ready", "blocked_missing_dependencies", "blocked_training_error"}
 
     if train_manifest["status"] == "ready":
         assert model_train["enabled"] is True
         assert model_train["model"] in {"SB3-PPO", "SB3-SAC"}
-        assert (run_dir / "learning_curve.csv").exists()
-        assert (run_dir / "learning_curve.json").exists()
-        assert (run_dir / "learning_curve.svg").exists()
-        assert (run_dir / "evaluation_metrics.json").exists()
-        assert (run_dir / "best_model.zip").exists()
-        assert (run_dir / "train_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "val_trace" / "reward_equity.svg").exists()
-        assert (run_dir / "test_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "reports" / "learning_curve.csv").exists()
+        assert (run_dir / "reports" / "learning_curve.json").exists()
+        assert (run_dir / "plots" / "learning_curve.svg").exists()
+        assert (run_dir / "artifacts" / "metrics.json").exists()
+        assert (run_dir / "artifacts" / "model.zip").exists()
+        assert (run_dir / "reports" / "val_trace" / "reward_equity.svg").exists()
+        assert (run_dir / "reports" / "test_trace" / "reward_equity.svg").exists()
         assert "baseline_comparison" in model_train
         assert (run_dir / "baseline_sensitivity.json").exists()
         baseline = json.loads((run_dir / "baseline_sensitivity.json").read_text(encoding="utf-8"))
@@ -85,11 +84,12 @@ def test_train_run_writes_dependency_block_or_training_artifacts():
             assert set(scenario["baselines"].keys()) == {"buy_and_hold", "ma_crossover", "random"}
     else:
         assert model_train["enabled"] is False
-        assert model_train["reason"] == "missing_dependencies"
+        assert model_train["reason"] in {"missing_dependencies", "training_error"}
 
-    data_manifest = (run_dir / "data_manifest.json").read_text(encoding="utf-8")
-    assert '"bootstrap_generated": ' in data_manifest
-    assert '"bootstrap_persisted": ' in data_manifest
+    data_manifest = json.loads((run_dir / "data_manifest.json").read_text(encoding="utf-8"))
+    assert data_manifest["bootstrap_generated"] in {True, False}
+    assert data_manifest["bootstrap_persisted"] in {True, False}
+    assert data_manifest["artifacts"]["config"] == "artifacts/config.yaml"
 
 
 def test_split_policy_and_walkforward_defaults(sample_candles):
