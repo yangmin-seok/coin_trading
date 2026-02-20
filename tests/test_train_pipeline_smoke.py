@@ -97,8 +97,10 @@ def test_walkforward_shortfall_reason_recorded(tmp_path: Path, monkeypatch: pyte
 
     assert model_summary["walkforward_requested"] > model_summary["walkforward_runs"]
     assert model_summary["walkforward_coverage_check"]["next_fold_required_test_end"] is not None
+    assert model_summary["walkforward_coverage_check"]["possible_runs"] >= 1
     assert model_summary["walkforward_shortfall"] is not None
     assert model_summary["walkforward_shortfall"]["reason"] == "insufficient_data_coverage_for_requested_walkforward"
+    assert len(model_summary["walkforward_shortfall"]["alternatives"]) >= 2
 
 
 def test_walkforward_split_reduction_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta):
@@ -160,3 +162,22 @@ def test_train_module_run_returns_run_id_without_type_error(tmp_path: Path, monk
     run_id = train.run()
 
     assert run_id == "entry_run_id"
+
+
+def test_walkforward_shortfall_abort_policy_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta):
+    monkeypatch.chdir(tmp_path)
+
+    from src.coin_trading.config.loader import load_config as _load_config
+
+    cfg = _load_config()
+    cfg.train.walkforward_shortfall_policy = "abort"
+
+    monkeypatch.setattr(orchestrator, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        orchestrator,
+        "plan_walkforward_splits",
+        lambda _candles_df, split, target_runs, min_folds=3: {"splits": [split]},
+    )
+
+    with pytest.raises(RuntimeError, match="walkforward shortfall"):
+        orchestrator.run()

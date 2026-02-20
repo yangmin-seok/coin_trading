@@ -7,6 +7,7 @@ import pandas as pd
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.pipelines.train_flow.data import (
     build_walkforward_splits,
+    compute_walkforward_capacity,
     ensure_training_candles,
     plan_walkforward_splits,
     split_by_date,
@@ -71,3 +72,14 @@ def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataF
     assert env.env.lambda_dd == cfg.reward.lambda_dd
     assert env.env.dd_limit == cfg.reward.dd_limit
     assert env._seed == cfg.train.seed
+
+
+def test_compute_walkforward_capacity_counts_possible_runs(sample_candles: pd.DataFrame):
+    cfg = load_config()
+    split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
+
+    capacity = compute_walkforward_capacity(pd.DataFrame(), split)
+
+    assert capacity["possible_runs"] >= 1
+    assert capacity["step_days"] >= 1
+    assert capacity["base_test_end"] == cfg.split.test[1]

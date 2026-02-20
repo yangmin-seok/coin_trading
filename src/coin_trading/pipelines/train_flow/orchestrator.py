@@ -16,6 +16,7 @@ from src.coin_trading.pipelines.run_manager import (
     write_train_manifest,
 )
 from src.coin_trading.pipelines.train_flow.data import (
+    compute_walkforward_capacity,
     ensure_training_candles,
     plan_walkforward_splits,
     split_by_date,
@@ -81,6 +82,33 @@ def _shrink_split_to_data_coverage(
     }
 
 
+def _build_shortfall_record(
+    requested_runs: int,
+    actual_runs: int,
+    capacity: dict[str, object],
+    scenario: str,
+    policy: str,
+) -> dict[str, object] | None:
+    if actual_runs >= requested_runs:
+        return None
+
+    alternatives = [
+        "extend data period (or set train.walkforward_adjustment_scenario=extend_data)",
+        "reduce val/test periods (or set train.walkforward_adjustment_scenario=reduce_val_test)",
+        "reduce train.walkforward_runs request",
+    ]
+    return {
+        "reason": "insufficient_data_coverage_for_requested_walkforward",
+        "requested": int(requested_runs),
+        "actual": int(actual_runs),
+        "shortfall": int(requested_runs - actual_runs),
+        "capacity": capacity,
+        "selected_scenario": scenario,
+        "shortfall_policy": policy,
+        "alternatives": alternatives,
+    }
+
+
 def run() -> str:
     cfg = load_config()
     run_id = make_run_id()
@@ -118,9 +146,12 @@ def run() -> str:
             microsecond=0,
         )
 
+    capacity_before = compute_walkforward_capacity(candles_df, base_split)
     required_test_end = _required_walkforward_test_end(base_split, cfg.train.walkforward_runs)
     minimum_coverage_check = {
         "requested_runs": cfg.train.walkforward_runs,
+        "possible_runs": capacity_before["possible_runs"],
+        "step_days": capacity_before["step_days"],
         "data_end": data_end.strftime("%Y-%m-%d") if data_end else None,
         "next_fold_required_test_end": required_test_end.strftime("%Y-%m-%d"),
         "satisfied": bool(data_end and data_end >= required_test_end),
@@ -128,8 +159,23 @@ def run() -> str:
 
     effective_split = base_split
     coverage_adjustment = None
-    if data_end and data_end < required_test_end:
-        effective_split, coverage_adjustment = _shrink_split_to_data_coverage(base_split, cfg.train.walkforward_runs, data_end)
+    scenario = cfg.train.walkforward_adjustment_scenario
+    planned_data_end = data_end
+    if scenario in {"auto", "extend_data"} and cfg.train.walkforward_extend_days > 0 and data_end:
+        extended_data_end = data_end + timedelta(days=cfg.train.walkforward_extend_days)
+        if extended_data_end > data_end:
+            coverage_adjustment = {
+                "action": "extend_data",
+                "before_data_end": data_end.strftime("%Y-%m-%d"),
+                "after_data_end": extended_data_end.strftime("%Y-%m-%d"),
+                "extend_days": cfg.train.walkforward_extend_days,
+            }
+            planned_data_end = extended_data_end
+    if scenario in {"auto", "reduce_val_test"} and planned_data_end and planned_data_end < required_test_end:
+        reduced_split, reduction_adjustment = _shrink_split_to_data_coverage(base_split, cfg.train.walkforward_runs, planned_data_end)
+        if reduction_adjustment is not None:
+            effective_split = reduced_split
+            coverage_adjustment = reduction_adjustment
 
     walkforward_plan = plan_walkforward_splits(
         candles_df,
@@ -138,18 +184,31 @@ def run() -> str:
         min_folds=3,
     )
     wf_splits = walkforward_plan["splits"]
+    capacity_after = compute_walkforward_capacity(candles_df, effective_split, data_end_override=planned_data_end)
 
-    walkforward_shortfall = None
-    if dataset_summary["rows"] > 0 and len(wf_splits) < cfg.train.walkforward_runs:
-        next_fold_test_end = _required_walkforward_test_end(effective_split, len(wf_splits) + 1)
-        walkforward_shortfall = {
-            "reason": "insufficient_data_coverage_for_requested_walkforward",
-            "requested": cfg.train.walkforward_runs,
-            "actual": len(wf_splits),
-            "data_end": data_end.strftime("%Y-%m-%d") if data_end else None,
-            "next_fold_required_test_end": next_fold_test_end.strftime("%Y-%m-%d"),
-            "suggestion": "collect more data or reduce val/test ranges to increase walkforward folds",
-        }
+    walkforward_shortfall = _build_shortfall_record(
+        cfg.train.walkforward_runs,
+        len(wf_splits),
+        capacity_after,
+        scenario,
+        cfg.train.walkforward_shortfall_policy,
+    )
+
+    print(
+        "[walkforward] requested_folds=%s possible_folds=%s scenario=%s policy=%s"
+        % (
+            cfg.train.walkforward_runs,
+            capacity_after["possible_runs"],
+            scenario,
+            cfg.train.walkforward_shortfall_policy,
+        )
+    )
+
+    if walkforward_shortfall is not None and cfg.train.walkforward_shortfall_policy == "abort":
+        raise RuntimeError(
+            "walkforward shortfall: requested=%s possible=%s"
+            % (cfg.train.walkforward_runs, capacity_after["possible_runs"])
+        )
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
     wf_results = []
@@ -186,6 +245,10 @@ def run() -> str:
         "walkforward_requested": cfg.train.walkforward_runs,
         "walkforward_coverage_check": minimum_coverage_check,
         "walkforward_coverage_adjustment": coverage_adjustment,
+        "walkforward_capacity": {
+            "before": capacity_before,
+            "after": capacity_after,
+        },
         "walkforward_shortfall": walkforward_shortfall,
         "results": wf_results,
         "model": primary_summary.get("model", "none"),
