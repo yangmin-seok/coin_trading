@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class ExecutionResult:
+    target_pos: float
+    effective_target_pos: float
     filled_qty: float
     fill_price: float
     fee: float
@@ -21,7 +23,7 @@ class ExecutionModel:
         self.min_delta = min_delta
 
     def execute_target(self, target_pos: float, current_pos: float, cash: float, position_qty: float, equity: float, next_open: float) -> ExecutionResult:
-        clipped_target = min(1.0, max(0.0, target_pos))
+        clipped_target = min(1.0, max(-1.0, target_pos))
         delta = max(-self.max_step_change, min(self.max_step_change, clipped_target - current_pos))
         if abs(delta) < self.min_delta:
             delta = 0.0
@@ -38,4 +40,4 @@ class ExecutionModel:
         new_position_qty = position_qty + filled_qty
         new_cash = cash - filled_qty * fill_price - fee
         slippage_cost = abs(filled_qty) * abs(fill_price - next_open)
-        return ExecutionResult(filled_qty, fill_price, fee, slippage_cost, new_cash, new_position_qty)
+        return ExecutionResult(clipped_target, effective_target, filled_qty, fill_price, fee, slippage_cost, new_cash, new_position_qty)

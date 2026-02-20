@@ -73,6 +73,7 @@ python -m pip install -e '.[dev]'
 
 네트워크 제한 환경에서는 의존성 설치가 실패할 수 있습니다.
 
+
 ### 2-3. 최소 실행 (명시적 모듈 경로)
 
 ```bash
@@ -82,6 +83,13 @@ python -m src.coin_trading.pipelines.train
 > 참고: 로컬 환경에서 패키지명이 `src.coin_traiding`로 설정되어 있다면, 아래 `src.coin_trading` 부분만 해당 이름으로 치환해 실행하세요.
 
 성공하면 콘솔 마지막 줄에 `run_id`가 출력됩니다.
+
+## 2-4. RL action/position 정의
+
+- `action`은 **목표 익스포저 비율(target exposure ratio)** 입니다.
+- 범위는 `[-1.0, 1.0]`이며, `-1.0`은 최대 숏, `0.0`은 중립, `1.0`은 최대 롱을 의미합니다.
+- 환경 관측치의 `position_ratio`는 signed ratio를 유지하며 학습 안정성을 위해 `[-1.0, 1.0]`로 clip합니다.
+
 
 요점은 "학습 성능" 자체보다, **파이프라인이 end-to-end로 정상 동작하는지 확인하는 것**입니다.
 
