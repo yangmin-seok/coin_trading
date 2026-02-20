@@ -27,8 +27,8 @@ def render_multi_line_svg(
     y_format_left: str = "number",
     y_format_right: str = "number",
 ) -> str:
-    width, height = 900, 340
-    pad_l, pad_r, pad_t, pad_b = 64, 24, 28, 52
+    width, height = 900, 360
+    pad_l, pad_r, pad_t, pad_b = 64, 24, 56, 52
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
 
@@ -122,16 +122,21 @@ def render_multi_line_svg(
         f"<line x1='{pad_l}' y1='{pad_t + chart_h}' x2='{pad_l + chart_w}' y2='{pad_t + chart_h}' stroke='#999'/>"
     )
 
-    legend = []
-    legend_x = 70
-    for name, color in primary_series:
+    legend: list[str] = []
+    legend_items = [("L", name, color) for name, color in primary_series] + [("R", name, color) for name, color in secondary_series]
+    legend_start_x = pad_l + 4
+    legend_x = legend_start_x
+    legend_y = 20
+    max_x = pad_l + chart_w - 120
+    for side, name, color in legend_items:
         line_color, _ = _series_style(name, color)
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[L] {name}</text>")
-        legend_x += 145
-    for name, color in secondary_series:
-        line_color, _ = _series_style(name, color)
-        legend.append(f"<text x='{legend_x}' y='18' font-size='12' fill='{line_color}'>[R] {name}</text>")
-        legend_x += 165
+        label = f"[{side}] {name}"
+        step = max(120, 8 * len(label) + 26)
+        if legend_x > legend_start_x and legend_x + step > max_x:
+            legend_x = legend_start_x
+            legend_y += 14
+        legend.append(f"<text x='{legend_x}' y='{legend_y}' font-size='11' fill='{line_color}'>{label}</text>")
+        legend_x += step
 
     labels = (
         f"<text x='{pad_l + chart_w / 2:.2f}' y='{height-10}' text-anchor='middle' font-size='11' fill='#666'>step</text>"
@@ -156,8 +161,12 @@ def render_multi_line_svg(
         color = ann.get("color", "#111")
         label = ann.get("label", "")
         marker_parts.append(f"<circle cx='{xx:.2f}' cy='{yy:.2f}' r='3.2' fill='{color}'/>")
+        is_left = xx < (pad_l + chart_w * 0.75)
+        tx = xx + 6 if is_left else xx - 70
+        tx = max(pad_l + 4, min(tx, pad_l + chart_w - 72))
+        ty = max(pad_t + 12, min(yy - 6, pad_t + chart_h - 6))
         marker_parts.append(
-            f"<text x='{xx + 6:.2f}' y='{yy - 6:.2f}' font-size='10' fill='{color}'>{label}</text>"
+            f"<rect x='{tx - 2:.2f}' y='{ty - 10:.2f}' width='68' height='13' fill='white' opacity='0.75'/><text x='{tx:.2f}' y='{ty:.2f}' font-size='10' fill='{color}'>{label}</text>"
         )
 
     return (

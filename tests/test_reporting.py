@@ -112,4 +112,4 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
     svg_text = svg_path.read_text(encoding="utf-8")
     assert "value [R]" in svg_text
     assert "[R] val_turnover" in svg_text
-    assert "[L] val_final_equity" in svg_text
+    assert "[L] val_return_pct" in svg_text
