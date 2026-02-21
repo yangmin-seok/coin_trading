@@ -7,6 +7,65 @@ from typing import Any
 import pandas as pd
 
 
+LEARNING_CURVE_SCHEMA = {
+    "version": 2,
+    "fields": {
+        "timesteps": "int",
+        "val_sharpe": "float",
+        "val_max_drawdown": "float",
+        "val_final_equity": "float",
+        "loss": "float|null",
+        "entropy_loss": "float|null",
+        "value_loss": "float|null",
+        "loss_collected": "bool",
+    },
+    "notes": {
+        "loss_fields": "null means metric unavailable/uncollected (distinct from numeric 0.0)",
+        "backward_compatibility": "v1 rows without loss_collected and nested train metrics remain supported",
+    },
+}
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_learning_curve_row(history_item: dict[str, Any]) -> dict[str, Any]:
+    train_metrics = history_item.get("train", {}) if isinstance(history_item.get("train", {}), dict) else {}
+    # Backward-compatible parsing order: explicit train metrics -> legacy top-level keys.
+    loss = _optional_float(train_metrics.get("loss"))
+    if loss is None:
+        loss = _optional_float(history_item.get("loss"))
+    entropy_loss = _optional_float(train_metrics.get("entropy_loss"))
+    if entropy_loss is None:
+        entropy_loss = _optional_float(history_item.get("entropy_loss"))
+    value_loss = _optional_float(train_metrics.get("value_loss"))
+    if value_loss is None:
+        value_loss = _optional_float(history_item.get("value_loss"))
+
+    explicit_flag = train_metrics.get("loss_collected")
+    if isinstance(explicit_flag, bool):
+        loss_collected = explicit_flag
+    else:
+        loss_collected = all(metric is not None for metric in (loss, entropy_loss, value_loss))
+
+    return {
+        "timesteps": int(history_item.get("timesteps", 0)),
+        "val_sharpe": float(history_item.get("val", {}).get("sharpe", 0.0)),
+        "val_max_drawdown": float(history_item.get("val", {}).get("max_drawdown", 0.0)),
+        "val_final_equity": float(history_item.get("val", {}).get("final_equity", 0.0)),
+        "loss": loss,
+        "entropy_loss": entropy_loss,
+        "value_loss": value_loss,
+        "loss_collected": loss_collected,
+    }
+
+
 
 def render_multi_line_svg(
     df: pd.DataFrame,
@@ -209,18 +268,7 @@ def render_summary_cards_svg(summary: dict[str, float], title: str = "Validation
 
 
 def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: Path, plots_dir: Path) -> None:
-    rows = [
-        {
-            "timesteps": h["timesteps"],
-            "val_sharpe": h["val"]["sharpe"],
-            "val_max_drawdown": h["val"]["max_drawdown"],
-            "val_final_equity": h["val"]["final_equity"],
-            "loss": 0.0,
-            "entropy_loss": 0.0,
-            "value_loss": 0.0,
-        }
-        for h in history
-    ]
+    rows = [_normalize_learning_curve_row(h) for h in history]
     frame = pd.DataFrame(rows)
     plot_frame = pd.DataFrame(
         [
@@ -273,6 +321,7 @@ def write_learning_curve_artifacts(history: list[dict[str, Any]], reports_dir: P
     plots_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(reports_dir / "learning_curve.csv", index=False)
     (reports_dir / "learning_curve.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    (reports_dir / "learning_curve.schema.json").write_text(json.dumps(LEARNING_CURVE_SCHEMA, indent=2), encoding="utf-8")
     (plots_dir / "learning_curve.svg").write_text(
         render_multi_line_svg(
             plot_frame,

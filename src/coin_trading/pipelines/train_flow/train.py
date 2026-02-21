@@ -23,6 +23,55 @@ from src.coin_trading.report.plotting import write_learning_curve_artifacts
 EPSILON = 1e-9
 
 
+def _to_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class _Sb3TrainMetricCollector:
+    """Collect train/* losses from SB3 logger for each learn() chunk."""
+
+    def __init__(self) -> None:
+        from stable_baselines3.common.callbacks import BaseCallback
+
+        class _Callback(BaseCallback):
+            def __init__(self, parent: _Sb3TrainMetricCollector):
+                super().__init__(verbose=0)
+                self._parent = parent
+
+            def _on_step(self) -> bool:
+                return True
+
+            def _on_rollout_end(self) -> None:
+                self._parent.capture(self.model)
+
+            def _on_training_end(self) -> None:
+                self._parent.capture(self.model)
+
+        self._callback = _Callback(self)
+        self.latest_losses: dict[str, float | None] = {
+            "loss": None,
+            "entropy_loss": None,
+            "value_loss": None,
+        }
+
+    @property
+    def callback(self):
+        return self._callback
+
+    def capture(self, model: Any) -> None:
+        logger_vals = dict(getattr(getattr(model, "logger", None), "name_to_value", {}) or {})
+        self.latest_losses = {
+            "loss": _to_optional_float(logger_vals.get("train/loss")),
+            "entropy_loss": _to_optional_float(logger_vals.get("train/entropy_loss")),
+            "value_loss": _to_optional_float(logger_vals.get("train/value_loss")),
+        }
+
+
 def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -296,6 +345,7 @@ def _run_single_experiment(
 
     train_env = build_env(train_df, train_features, cfg)
     model = build_sb3_algo(cfg.train.algo, train_env, cfg, resolved_device)
+    metric_collector = _Sb3TrainMetricCollector()
 
     if cfg.train.resume_from:
         model = model.__class__.load(cfg.train.resume_from, env=train_env)
@@ -309,11 +359,21 @@ def _run_single_experiment(
 
     while trained < total:
         chunk = min(interval, total - trained)
-        model.learn(total_timesteps=chunk, reset_num_timesteps=False)
+        model.learn(total_timesteps=chunk, reset_num_timesteps=False, callback=metric_collector.callback)
         trained += chunk
         val_metrics = rollout_model(model, val_df, val_features, cfg)
         candidate, sweep_candidates = _select_best_penalty_weight(val_metrics, cfg)
-        candidate_record = {"timesteps": trained, "val": val_metrics, "selection": candidate}
+        candidate_record = {
+            "timesteps": trained,
+            "val": val_metrics,
+            "selection": candidate,
+            "train": {
+                "loss": metric_collector.latest_losses["loss"],
+                "entropy_loss": metric_collector.latest_losses["entropy_loss"],
+                "value_loss": metric_collector.latest_losses["value_loss"],
+                "loss_collected": all(v is not None for v in metric_collector.latest_losses.values()),
+            },
+        }
         if cfg.reward.penalty_sweep_enabled:
             candidate_record["selection_sweep"] = sweep_candidates
         history.append(candidate_record)

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from pathlib import Path
 
 import pandas as pd
@@ -74,6 +73,12 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
                 "total_cost": 2.0,
                 "cost_pnl_ratio": 0.02,
             },
+            "train": {
+                "loss": 0.11,
+                "entropy_loss": 0.02,
+                "value_loss": 0.34,
+                "loss_collected": True,
+            },
         },
         {
             "timesteps": 2000,
@@ -85,6 +90,12 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
                 "turnover": 0.2,
                 "total_cost": 2.8,
                 "cost_pnl_ratio": 0.018,
+            },
+            "train": {
+                "loss": None,
+                "entropy_loss": None,
+                "value_loss": None,
+                "loss_collected": False,
             },
         },
     ]
@@ -109,7 +120,23 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
         "loss",
         "entropy_loss",
         "value_loss",
+        "loss_collected",
     ]
+    assert frame.loc[0, "loss"] == 0.11
+    assert frame.loc[0, "entropy_loss"] == 0.02
+    assert frame.loc[0, "value_loss"] == 0.34
+    assert bool(frame.loc[0, "loss_collected"]) is True
+    assert pd.isna(frame.loc[1, "loss"])
+    assert pd.isna(frame.loc[1, "entropy_loss"])
+    assert pd.isna(frame.loc[1, "value_loss"])
+    assert bool(frame.loc[1, "loss_collected"]) is False
+
+    json_text = json_path.read_text(encoding="utf-8")
+    assert '"loss": null' in json_text
+
+    schema_path = reports_dir / "learning_curve.schema.json"
+    assert schema_path.exists()
+    assert '"version": 2' in schema_path.read_text(encoding="utf-8")
 
     svg_text = svg_path.read_text(encoding="utf-8")
     assert "value [R]" in svg_text
@@ -119,3 +146,24 @@ def test_learning_curve_svg_has_secondary_axis_and_legacy_paths(tmp_path: Path):
     summary_svg_text = summary_svg_path.read_text(encoding="utf-8")
     assert "Validation Summary" in summary_svg_text
     assert "Final Equity" in summary_svg_text
+
+
+def test_learning_curve_legacy_loss_keys_are_supported(tmp_path: Path):
+    reports_dir = tmp_path / "reports"
+    plots_dir = tmp_path / "plots"
+    history = [
+        {
+            "timesteps": 500,
+            "val": {"sharpe": 0.1, "max_drawdown": 0.05, "final_equity": 1010.0},
+            "loss": 0.0,
+            "entropy_loss": 0.0,
+            "value_loss": 0.0,
+        }
+    ]
+
+    write_learning_curve_artifacts(history, reports_dir, plots_dir)
+    frame = pd.read_csv(reports_dir / "learning_curve.csv")
+    assert frame.loc[0, "loss"] == 0.0
+    assert frame.loc[0, "entropy_loss"] == 0.0
+    assert frame.loc[0, "value_loss"] == 0.0
+    assert bool(frame.loc[0, "loss_collected"]) is True
