@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,42 +34,66 @@ def seed_everything(seed: int) -> None:
         pass
 
 
-def _resolve_training_device(requested_device: str) -> str:
-    req = str(requested_device or "auto").strip().lower()
+
+
+def _collect_torch_device_info() -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "torch_version": None,
+        "cuda_available": False,
+        "cuda_device_count": 0,
+    }
     try:
         import torch
 
-        cuda_available = bool(torch.cuda.is_available())
-        cuda_count = int(torch.cuda.device_count()) if cuda_available else 0
+        info["torch_version"] = str(getattr(torch, "__version__", "unknown"))
+        info["cuda_available"] = bool(torch.cuda.is_available())
+        info["cuda_device_count"] = int(torch.cuda.device_count()) if info["cuda_available"] else 0
     except Exception:
-        cuda_available = False
-        cuda_count = 0
+        pass
+    return info
 
-    if req in {"auto", ""}:
+
+def _normalize_requested_device(requested_device: str) -> str:
+    req = str(requested_device or "auto").strip().lower()
+    alias_map = {
+        "gpu": "cuda",
+    }
+    req = alias_map.get(req, req)
+    if req in {"auto", "cpu", "cuda"}:
+        return req
+    if re.fullmatch(r"cuda:\d+", req):
+        return req
+    raise ValueError(f"unsupported train.device='{requested_device}'. Expected one of: auto, cpu, cuda, cuda:N")
+
+
+def _resolve_training_device(requested_device: str) -> str:
+    req = _normalize_requested_device(requested_device)
+    torch_info = _collect_torch_device_info()
+    cuda_available = bool(torch_info["cuda_available"])
+    cuda_count = int(torch_info["cuda_device_count"])
+
+    if req == "auto":
         return "cuda:0" if cuda_available and cuda_count > 0 else "cpu"
-
-    if req.startswith("cuda"):
+    if req == "cpu":
+        return "cpu"
+    if req == "cuda":
         if not (cuda_available and cuda_count > 0):
-            print(f"[train] requested device='{requested_device}' but CUDA is unavailable; fallback to cpu")
-            return "cpu"
-        if ":" in req:
-            try:
-                idx = int(req.split(":", 1)[1])
-            except ValueError:
-                idx = 0
-            if idx >= cuda_count:
-                print(f"[train] requested device='{requested_device}' but only {cuda_count} CUDA device(s) detected; fallback to cuda:0")
-                return "cuda:0"
-    return requested_device
+            raise RuntimeError("train.device='cuda' requested but CUDA is unavailable")
+        return "cuda:0"
+
+    idx = int(req.split(":", 1)[1])
+    if not (cuda_available and cuda_count > 0):
+        raise RuntimeError(f"train.device='{req}' requested but CUDA is unavailable")
+    if idx >= cuda_count:
+        raise RuntimeError(f"train.device='{req}' requested but only {cuda_count} CUDA device(s) detected")
+    return f"cuda:{idx}"
 
 
-def build_sb3_algo(algo_name: str, env, cfg: AppConfig):
+def build_sb3_algo(algo_name: str, env, cfg: AppConfig, resolved_device: str):
     try:
         from stable_baselines3 import PPO, SAC
     except ImportError as exc:
         raise RuntimeError("stable-baselines3/gymnasium is required for train mode. Please install project dependencies.") from exc
-
-    resolved_device = _resolve_training_device(cfg.train.device)
 
     if algo_name == "ppo":
         return PPO(
@@ -265,8 +290,12 @@ def _run_single_experiment(
     val_features = transform_with_scaler(val_features_raw, scaler)
     test_features = transform_with_scaler(test_features_raw, scaler) if not test_df.empty else pd.DataFrame()
 
+    requested_device = _normalize_requested_device(cfg.train.device)
+    resolved_device = _resolve_training_device(requested_device)
+    torch_device_info = _collect_torch_device_info()
+
     train_env = build_env(train_df, train_features, cfg)
-    model = build_sb3_algo(cfg.train.algo, train_env, cfg)
+    model = build_sb3_algo(cfg.train.algo, train_env, cfg, resolved_device)
 
     if cfg.train.resume_from:
         model = model.__class__.load(cfg.train.resume_from, env=train_env)
@@ -330,18 +359,25 @@ def _run_single_experiment(
             },
         },
     }
+    device_metadata = {
+        "requested": requested_device,
+        "resolved": resolved_device,
+        **torch_device_info,
+    }
     metrics_payload = {
         "history": history,
         "selection": selection_summary,
         "val": val_final,
         "test": test_metrics,
+        "training_device": device_metadata,
     }
 
     summary = {
         "enabled": True,
         "model": f"SB3-{cfg.train.algo.upper()}",
         "algo": cfg.train.algo,
-        "device": _resolve_training_device(cfg.train.device),
+        "device": resolved_device,
+        "training_device": device_metadata,
         "reward_type": cfg.reward.type,
         "steps": int(trained),
         "best_model": "artifacts/model.zip" if best_model_path.exists() else None,

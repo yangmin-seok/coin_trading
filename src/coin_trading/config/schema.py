@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RewardConfig(BaseModel):
@@ -79,6 +80,29 @@ class TrainConfig(BaseModel):
     walkforward_adjustment_scenario: Literal["auto", "extend_data", "reduce_val_test", "off"] = "auto"
     walkforward_shortfall_policy: Literal["warn_and_continue", "abort"] = "warn_and_continue"
     walkforward_extend_days: int = Field(ge=0, default=0)
+
+    @field_validator("device", mode="before")
+    @classmethod
+    def validate_device(cls, value: str) -> str:
+        device = str(value or "auto").strip().lower()
+        alias_map = {
+            "gpu": "cuda",
+            "gpu:0": "cuda:0",
+            "gpu:1": "cuda:1",
+            "gpu:2": "cuda:2",
+            "gpu:3": "cuda:3",
+            "gpu:4": "cuda:4",
+            "gpu:5": "cuda:5",
+            "gpu:6": "cuda:6",
+            "gpu:7": "cuda:7",
+        }
+        device = alias_map.get(device, device)
+
+        if device in {"auto", "cpu", "cuda"}:
+            return device
+        if re.fullmatch(r"cuda:\d+", device):
+            return device
+        raise ValueError("train.device must be one of: auto, cpu, cuda, cuda:N")
 
 
 class ExplorationAxesConfig(BaseModel):
