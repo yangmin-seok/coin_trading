@@ -236,3 +236,50 @@ def test_manifest_records_bootstrap_persist_failure_reason(tmp_path: Path, monke
     assert data_manifest["bootstrap_persist_failure_reason"] == "PermissionError: denied"
     assert train_manifest["demo_smoke_only"] is True
     assert model_summary["demo_smoke_only"] is True
+
+
+def test_walkforward_coverage_section_standardized_keys_for_long_test_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fixed_run_id: str,
+    patched_meta,
+):
+    from src.coin_trading.config.loader import load_config as _load_config
+
+    cfg = _load_config()
+    cfg.split.train = ("2024-01-01", "2024-02-29")
+    cfg.split.val = ("2024-03-01", "2024-03-31")
+    cfg.split.test = ("2024-04-01", "2024-09-30")
+    cfg.train.walkforward_runs = 3
+
+    open_times = pd.date_range(start="2024-01-01", end="2024-10-05", freq="1D", tz="UTC")
+    candles_df = pd.DataFrame(
+        {
+            "open_time": (open_times.view("int64") // 1_000_000).astype(int),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1.0,
+            "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
+        }
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(orchestrator, "load_config", lambda: cfg)
+    monkeypatch.setattr(orchestrator, "ensure_training_candles", lambda _cfg, allow_bootstrap=None: (candles_df, False, False, None))
+    monkeypatch.setattr(
+        orchestrator,
+        "train_sb3",
+        lambda *_args, **_kwargs: {"enabled": False, "reason": "insufficient_split_rows"},
+    )
+
+    orchestrator.run()
+
+    run_dir = tmp_path / "runs" / fixed_run_id
+    model_summary = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
+
+    assert model_summary["coverage"]["walkforward"]["check"]["requested_runs"] == 3
+    assert model_summary["coverage"]["walkforward"]["warning"] is not None
+    assert model_summary["coverage"]["walkforward"]["warning"]["code"] == "insufficient_data_coverage"
+    assert model_summary["coverage"]["walkforward"]["adjustment"] is not None
