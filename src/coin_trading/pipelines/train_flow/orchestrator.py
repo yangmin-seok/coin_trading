@@ -17,6 +17,7 @@ from src.coin_trading.pipelines.run_manager import (
 )
 from src.coin_trading.pipelines.train_flow.data import (
     compute_walkforward_capacity,
+    bootstrap_allowed_for_mode,
     ensure_training_candles,
     plan_walkforward_splits,
     split_by_date,
@@ -131,7 +132,11 @@ def run() -> str:
         },
     )
 
-    candles_df, bootstrapped, bootstrap_persisted = ensure_training_candles(cfg)
+    allow_bootstrap = bootstrap_allowed_for_mode(cfg.mode)
+    candles_df, bootstrapped, bootstrap_persisted, bootstrap_persist_failure_reason = ensure_training_candles(
+        cfg,
+        allow_bootstrap=allow_bootstrap,
+    )
     dataset_summary = summarize_dataset(candles_df, cfg)
 
     base_split = {"train": cfg.split.train, "val": cfg.split.val, "test": cfg.split.test}
@@ -211,6 +216,7 @@ def run() -> str:
         )
 
     status = "ready" if dataset_summary["rows"] > 0 else "blocked_no_training_data"
+    demo_smoke_only = bool(bootstrapped)
     wf_results = []
 
     if dataset_summary["rows"] > 0:
@@ -254,6 +260,7 @@ def run() -> str:
         "model": primary_summary.get("model", "none"),
         "reason": primary_summary.get("reason"),
         "message": primary_summary.get("message"),
+        "demo_smoke_only": demo_smoke_only,
     }
     if status == "blocked_missing_dependencies" and wf_results:
         train_summary["reason"] = "missing_dependencies"
@@ -269,8 +276,10 @@ def run() -> str:
             "symbol": cfg.symbol,
             "interval": cfg.interval,
             "processed": {"time_unit": "ms"},
+            "bootstrap_allowed": bool(allow_bootstrap),
             "bootstrap_generated": bool(bootstrapped),
             "bootstrap_persisted": bool(bootstrap_persisted),
+            "bootstrap_persist_failure_reason": bootstrap_persist_failure_reason,
             "dataset": dataset_summary,
             "split_policy": split_policy,
         },
@@ -303,6 +312,7 @@ def run() -> str:
             "epochs": 0,
             "model": train_summary.get("model", "none"),
             "model_train": train_summary,
+            "demo_smoke_only": demo_smoke_only,
             "artifacts": {
                 "train_summary_report": "reports/model_train_summary.json",
                 "config": "artifacts/config.yaml",

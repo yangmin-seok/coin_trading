@@ -119,7 +119,7 @@ def test_walkforward_split_reduction_recorded(tmp_path: Path, monkeypatch: pytes
             "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
         }
     )
-    monkeypatch.setattr(orchestrator, "ensure_training_candles", lambda _cfg: (candles_df, False, False))
+    monkeypatch.setattr(orchestrator, "ensure_training_candles", lambda _cfg, allow_bootstrap=None: (candles_df, False, False, None))
     monkeypatch.setattr(
         orchestrator,
         "plan_walkforward_splits",
@@ -181,3 +181,58 @@ def test_walkforward_shortfall_abort_policy_raises(tmp_path: Path, monkeypatch: 
 
     with pytest.raises(RuntimeError, match="walkforward shortfall"):
         orchestrator.run()
+
+
+def test_live_mode_fails_fast_when_bootstrap_disallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, patched_meta):
+    from src.coin_trading.config.loader import load_config as _load_config
+
+    cfg = _load_config()
+    cfg.mode = "live"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(orchestrator, "load_config", lambda: cfg)
+    monkeypatch.setattr(orchestrator, "make_run_id", lambda: "live_failfast_run")
+
+    with pytest.raises(RuntimeError, match="bootstrap is disabled"):
+        orchestrator.run()
+
+
+def test_manifest_records_bootstrap_persist_failure_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_run_id: str, patched_meta, patched_train_sb3):
+    monkeypatch.chdir(tmp_path)
+    from src.coin_trading.config.loader import load_config as _load_config
+
+    cfg = _load_config()
+    start = pd.Timestamp(cfg.split.train[0], tz="UTC")
+    end = pd.Timestamp(cfg.split.test[1], tz="UTC")
+    open_times = pd.date_range(start=start, end=end, freq="1D")
+    candles_df = pd.DataFrame(
+        {
+            "open_time": (open_times.view("int64") // 1_000_000).astype(int),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1.0,
+            "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
+        }
+    )
+
+    monkeypatch.setattr(
+        orchestrator,
+        "ensure_training_candles",
+        lambda _cfg, allow_bootstrap=None: (candles_df, True, False, "PermissionError: denied"),
+    )
+
+    orchestrator.run()
+
+    run_dir = tmp_path / "runs" / fixed_run_id
+    data_manifest = json.loads((run_dir / "artifacts" / "data_manifest.json").read_text(encoding="utf-8"))
+    train_manifest = json.loads((run_dir / "artifacts" / "train_manifest.json").read_text(encoding="utf-8"))
+    model_summary = json.loads((run_dir / "reports" / "model_train_summary.json").read_text(encoding="utf-8"))
+
+    assert data_manifest["bootstrap_allowed"] is True
+    assert data_manifest["bootstrap_generated"] is True
+    assert data_manifest["bootstrap_persisted"] is False
+    assert data_manifest["bootstrap_persist_failure_reason"] == "PermissionError: denied"
+    assert train_manifest["demo_smoke_only"] is True
+    assert model_summary["demo_smoke_only"] is True
