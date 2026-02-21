@@ -5,6 +5,8 @@ import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
+
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.features.definitions import FEATURE_COLUMNS
 from src.coin_trading.pipelines.run_manager import (
@@ -41,12 +43,8 @@ def _write_meta_compat(run_dir: Path, extra: dict[str, object]) -> None:
     write_meta(run_dir)
 
 
-def _required_walkforward_test_end(split: dict[str, tuple[str, str]], requested_runs: int) -> datetime:
-    val_start = datetime.fromisoformat(split["val"][0]).replace(tzinfo=timezone.utc)
-    val_end = datetime.fromisoformat(split["val"][1]).replace(tzinfo=timezone.utc)
-    test_end = datetime.fromisoformat(split["test"][1]).replace(tzinfo=timezone.utc)
-    step_days = max(1, (val_end - val_start).days + 1)
-    return test_end + timedelta(days=step_days * max(0, requested_runs - 1))
+def _walkforward_shortfall_size(requested_runs: int, possible_runs: int) -> int:
+    return max(0, int(requested_runs) - max(1, int(possible_runs)))
 
 
 def _shrink_split_to_data_coverage(
@@ -54,7 +52,8 @@ def _shrink_split_to_data_coverage(
     requested_runs: int,
     data_end: datetime,
 ) -> tuple[dict[str, tuple[str, str]], dict[str, object] | None]:
-    required_end = _required_walkforward_test_end(split, requested_runs)
+    capacity = compute_walkforward_capacity(pd.DataFrame(), split, requested_runs=requested_runs)
+    required_end = datetime.fromisoformat(str(capacity["requested_test_end"])).replace(tzinfo=timezone.utc)
     if data_end >= required_end:
         return split, None
 
@@ -102,7 +101,7 @@ def _build_shortfall_record(
         "reason": "insufficient_data_coverage_for_requested_walkforward",
         "requested": int(requested_runs),
         "actual": int(actual_runs),
-        "shortfall": int(requested_runs - actual_runs),
+        "shortfall": _walkforward_shortfall_size(requested_runs, actual_runs),
         "capacity": capacity,
         "selected_scenario": scenario,
         "shortfall_policy": policy,
@@ -151,15 +150,15 @@ def run() -> str:
             microsecond=0,
         )
 
-    capacity_before = compute_walkforward_capacity(candles_df, base_split)
-    required_test_end = _required_walkforward_test_end(base_split, cfg.train.walkforward_runs)
+    capacity_before = compute_walkforward_capacity(candles_df, base_split, requested_runs=cfg.train.walkforward_runs)
+    required_test_end = capacity_before["requested_test_end"]
     minimum_coverage_check = {
         "requested_runs": cfg.train.walkforward_runs,
         "possible_runs": capacity_before["possible_runs"],
         "step_days": capacity_before["step_days"],
         "data_end": data_end.strftime("%Y-%m-%d") if data_end else None,
-        "next_fold_required_test_end": required_test_end.strftime("%Y-%m-%d"),
-        "satisfied": bool(data_end and data_end >= required_test_end),
+        "next_fold_required_test_end": required_test_end,
+        "satisfied": _walkforward_shortfall_size(cfg.train.walkforward_runs, capacity_before["possible_runs"]) == 0,
     }
 
     effective_split = base_split
@@ -176,7 +175,8 @@ def run() -> str:
                 "extend_days": cfg.train.walkforward_extend_days,
             }
             planned_data_end = extended_data_end
-    if scenario in {"auto", "reduce_val_test"} and planned_data_end and planned_data_end < required_test_end:
+    required_test_end_dt = datetime.fromisoformat(str(required_test_end)).replace(tzinfo=timezone.utc)
+    if scenario in {"auto", "reduce_val_test"} and planned_data_end and planned_data_end < required_test_end_dt:
         reduced_split, reduction_adjustment = _shrink_split_to_data_coverage(base_split, cfg.train.walkforward_runs, planned_data_end)
         if reduction_adjustment is not None:
             effective_split = reduced_split
@@ -189,7 +189,12 @@ def run() -> str:
         min_folds=3,
     )
     wf_splits = walkforward_plan["splits"]
-    capacity_after = compute_walkforward_capacity(candles_df, effective_split, data_end_override=planned_data_end)
+    capacity_after = compute_walkforward_capacity(
+        candles_df,
+        effective_split,
+        data_end_override=planned_data_end,
+        requested_runs=cfg.train.walkforward_runs,
+    )
 
     walkforward_shortfall = _build_shortfall_record(
         cfg.train.walkforward_runs,
@@ -251,6 +256,13 @@ def run() -> str:
         "walkforward_requested": cfg.train.walkforward_runs,
         "walkforward_coverage_check": minimum_coverage_check,
         "walkforward_coverage_adjustment": coverage_adjustment,
+        "coverage": {
+            "walkforward": {
+                "check": minimum_coverage_check,
+                "warning": capacity_after.get("coverage_warning") or walkforward_plan.get("coverage_warning"),
+                "adjustment": coverage_adjustment,
+            }
+        },
         "walkforward_capacity": {
             "before": capacity_before,
             "after": capacity_after,

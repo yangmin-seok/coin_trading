@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src.coin_trading.config.loader import load_config
 from src.coin_trading.pipelines.train_flow.data import (
@@ -12,6 +13,7 @@ from src.coin_trading.pipelines.train_flow.data import (
     plan_walkforward_splits,
     split_by_date,
     summarize_dataset,
+    validate_split_policy,
 )
 from src.coin_trading.pipelines.train_flow.env import build_env
 from src.coin_trading.pipelines.train_flow.features import compute_features
@@ -85,3 +87,53 @@ def test_compute_walkforward_capacity_counts_possible_runs(sample_candles: pd.Da
     assert capacity["possible_runs"] >= 1
     assert capacity["step_days"] >= 1
     assert capacity["base_test_end"] == cfg.split.test[1]
+
+
+def test_validate_split_policy_strict_bounds_rejects_end_overflow():
+    split = {
+        "train": ("2024-01-01", "2024-02-29"),
+        "val": ("2024-03-01", "2024-03-31"),
+        "test": ("2024-04-01", "2024-04-30"),
+    }
+    open_times = pd.date_range(start="2024-01-01", end="2024-04-10", freq="1D", tz="UTC")
+    candles_df = pd.DataFrame(
+        {
+            "open_time": (open_times.view("int64") // 1_000_000).astype(int),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1.0,
+            "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
+        }
+    )
+
+    with pytest.raises(ValueError, match="strict mode"):
+        validate_split_policy(split, candles_df, strict_data_bounds=True)
+
+
+def test_plan_walkforward_splits_reports_coverage_warning_for_long_test_request():
+    split = {
+        "train": ("2024-01-01", "2024-02-29"),
+        "val": ("2024-03-01", "2024-03-31"),
+        "test": ("2024-04-01", "2024-09-30"),
+    }
+    open_times = pd.date_range(start="2024-01-01", end="2024-10-05", freq="1D", tz="UTC")
+    candles_df = pd.DataFrame(
+        {
+            "open_time": (open_times.view("int64") // 1_000_000).astype(int),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1.0,
+            "close_time": (open_times.view("int64") // 1_000_000).astype(int) + 60_000,
+        }
+    )
+
+    plan = plan_walkforward_splits(candles_df, split, target_runs=3, min_folds=3)
+
+    assert plan["policy"]["actual_runs"] >= 1
+    assert plan["coverage_warning"] is not None
+    assert plan["coverage_warning"]["requested_period"]["requested_runs"] == 3
+    assert plan["coverage_warning"]["available_period"]["possible_runs"] == 1

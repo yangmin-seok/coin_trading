@@ -145,6 +145,7 @@ def validate_split_policy(
     split: dict[str, tuple[str, str]],
     candles_df: pd.DataFrame,
     min_days: dict[str, int] | None = None,
+    strict_data_bounds: bool = False,
 ) -> dict[str, Any]:
     min_days = min_days or {"train": 60, "val": 14, "test": 14}
     required = ("train", "val", "test")
@@ -169,10 +170,15 @@ def validate_split_policy(
     if not candles_df.empty:
         data_start = pd.to_datetime(candles_df["open_time"].min(), unit="ms", utc=True).normalize()
         data_end = pd.to_datetime(candles_df["open_time"].max(), unit="ms", utc=True).normalize()
-        for key, (start_ts, _) in ts_split.items():
+        for key, (start_ts, end_ts) in ts_split.items():
             if start_ts < data_start or start_ts > data_end:
                 raise ValueError(
                     f"{key} split start must be inside data coverage: data={data_start.date()}..{data_end.date()}"
+                )
+            if strict_data_bounds and end_ts > data_end:
+                raise ValueError(
+                    f"{key} split end must be inside data coverage in strict mode: "
+                    f"data={data_start.date()}..{data_end.date()}"
                 )
 
     return {
@@ -234,6 +240,7 @@ def compute_walkforward_capacity(
     split: dict[str, tuple[str, str]],
     step_days: int | None = None,
     data_end_override: pd.Timestamp | None = None,
+    requested_runs: int | None = None,
 ) -> dict[str, Any]:
     """현재 split/step 기준으로 데이터가 수용 가능한 최대 fold 수를 계산한다."""
 
@@ -256,13 +263,42 @@ def compute_walkforward_capacity(
     feasible_forward_days = max(0, forward_days)
     possible_runs = 1 + (feasible_forward_days // chosen_step_days)
 
+    requested_runs = int(requested_runs) if requested_runs is not None else None
+    requested_forward_days = None
+    requested_test_end = None
+    coverage_warning = None
+    if requested_runs is not None and requested_runs > 0:
+        requested_forward_days = chosen_step_days * max(0, requested_runs - 1)
+        requested_test_end_ts = test_end + pd.Timedelta(days=requested_forward_days)
+        requested_test_end = requested_test_end_ts.strftime("%Y-%m-%d")
+        if requested_test_end_ts > data_end:
+            coverage_warning = {
+                "code": "insufficient_data_coverage",
+                "requested_period": {
+                    "start": test_end.strftime("%Y-%m-%d"),
+                    "end": requested_test_end,
+                    "days": int(requested_forward_days + 1),
+                    "requested_runs": int(requested_runs),
+                },
+                "available_period": {
+                    "start": test_end.strftime("%Y-%m-%d"),
+                    "end": data_end.strftime("%Y-%m-%d"),
+                    "days": int(feasible_forward_days + 1),
+                    "possible_runs": int(max(1, possible_runs)),
+                },
+            }
+
     return {
         "possible_runs": int(max(1, possible_runs)),
         "step_days": int(chosen_step_days),
         "val_days": int(val_days),
         "forward_days": int(forward_days),
+        "requested_forward_days": int(requested_forward_days) if requested_forward_days is not None else None,
+        "requested_runs": requested_runs,
         "data_end": data_end.strftime("%Y-%m-%d"),
         "base_test_end": test_end.strftime("%Y-%m-%d"),
+        "requested_test_end": requested_test_end,
+        "coverage_warning": coverage_warning,
     }
 
 
@@ -315,6 +351,15 @@ def plan_walkforward_splits(
                 min_days=min_days,
             )
         )
+
+    base_capacity = compute_walkforward_capacity(
+        candles_df,
+        split,
+        step_days=chosen_step_days,
+        data_end_override=data_end,
+        requested_runs=desired_folds,
+    )
+    coverage_warning = base_capacity.get("coverage_warning")
 
     folds = _folds_for(policy_split, chosen_step_days)
 
@@ -376,6 +421,7 @@ def plan_walkforward_splits(
 
     return {
         "splits": final_splits,
+        "coverage_warning": coverage_warning,
         "policy": {
             "requested_runs": int(target_runs),
             "minimum_required_runs": int(min_folds),
