@@ -43,11 +43,13 @@ def test_split_by_date_filters_range(sample_candles: pd.DataFrame):
 
 def test_ensure_training_candles_bootstraps_when_missing(tmp_path: Path):
     cfg = load_config()
-    candles, bootstrapped, persisted = ensure_training_candles(cfg, data_root=tmp_path)
+    candles, bootstrapped, persisted, persist_failure_reason = ensure_training_candles(cfg, data_root=tmp_path)
 
     assert bootstrapped is True
     assert len(candles) > 0
     assert persisted in {True, False}
+    if persisted:
+        assert persist_failure_reason is None
 
 
 def test_build_env_reflects_execution_and_reward_config(sample_candles: pd.DataFrame):

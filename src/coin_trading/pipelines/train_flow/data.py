@@ -96,10 +96,26 @@ def _generate_bootstrap_candles(
     return pd.DataFrame(rows)
 
 
-def ensure_training_candles(cfg: AppConfig, data_root: Path = Path("data/processed")) -> tuple[pd.DataFrame, bool, bool]:
+def bootstrap_allowed_for_mode(mode: str) -> bool:
+    if mode == "demo":
+        return True
+    if mode in {"live", "backtest"}:
+        return False
+    return False
+
+
+def ensure_training_candles(
+    cfg: AppConfig,
+    data_root: Path = Path("data/processed"),
+    allow_bootstrap: bool | None = None,
+) -> tuple[pd.DataFrame, bool, bool, str | None]:
+    allow_bootstrap = bootstrap_allowed_for_mode(cfg.mode) if allow_bootstrap is None else bool(allow_bootstrap)
     candles_df = load_training_candles(cfg, data_root=data_root)
     if not candles_df.empty:
-        return candles_df, False, False
+        return candles_df, False, False, None
+
+    if not allow_bootstrap:
+        raise RuntimeError(f"training candles are missing and bootstrap is disabled for mode={cfg.mode}")
 
     bootstrap_df = _generate_bootstrap_candles(cfg)
     try:
@@ -111,9 +127,10 @@ def ensure_training_candles(cfg: AppConfig, data_root: Path = Path("data/process
             symbol=cfg.symbol,
             interval=cfg.interval,
         )
-        return load_training_candles(cfg, data_root=data_root), True, True
-    except (ImportError, ModuleNotFoundError):
-        return bootstrap_df.sort_values("open_time").reset_index(drop=True), True, False
+        return load_training_candles(cfg, data_root=data_root), True, True, None
+    except Exception as exc:
+        failure_reason = f"{exc.__class__.__name__}: {exc}"
+        return bootstrap_df.sort_values("open_time").reset_index(drop=True), True, False, failure_reason
 
 
 def split_by_date(candles_df: pd.DataFrame, split_range: tuple[str, str]) -> pd.DataFrame:
